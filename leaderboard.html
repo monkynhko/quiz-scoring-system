@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kvíz Factory Leaderboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        body, button, input, textarea, select, a {
+            pointer-events: none !important;
+            cursor: default !important;
+        }
+        table, th, td {
+            pointer-events: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1 class="neon-text">Kvíz Factory</h1>
+            <div class="date-time neon-text">Leaderboard</div>
+        </header>
+        <main>
+            <section class="neon-box">
+                <h2>Current Rankings</h2>
+                <div id="leaderboardDisplay"></div>
+            </section>
+            <section class="neon-box">
+                <h2>Quiz Statistics</h2>
+                <div id="quizStats" class="stats-grid">
+                    <div class="stat-card">
+                        <h3>Top Score</h3>
+                        <div id="topScore"></div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Easiest Round</h3>
+                        <div id="easiestRound"></div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Most Difficult Round</h3>
+                        <div id="hardestRound"></div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Best Single Round</h3>
+                        <div id="bestRound"></div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    <script src="leaderboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,231 @@
+/* Main styles */
+:root {
+    --primary-color: #2c3e50;
+    --secondary-color: #ff00ff;
+    --background-color: #0a0a2e;
+    --text-color: #fff;
+    --border-color: #ff00ff;
+    --neon-glow: 0 0 7px #fff,
+                 0 0 10px #fff,
+                 0 0 21px #fff,
+                 0 0 42px #ff00ff,
+                 0 0 82px #ff00ff,
+                 0 0 92px #ff00ff,
+                 0 0 102px #ff00ff,
+                 0 0 151px #ff00ff;
+    --neon-box-shadow: 0 0 .2rem #fff,
+                      0 0 .2rem #fff,
+                      0 0 2rem #ff00ff,
+                      0 0 0.8rem #ff00ff,
+                      0 0 2.8rem #ff00ff,
+                      inset 0 0 1.3rem #ff00ff;
+    --success-color: #27ae60;
+    --warning-color: #e67e22;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.6;
+    background-color: var(--background-color);
+    color: var(--text-color);
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Header styles */
+header {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+header h1 {
+    margin-bottom: 15px;
+}
+
+.controls {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+/* Button styles */
+button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    background-color: var(--secondary-color);
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+button:hover {
+    background-color: #2980b9;
+}
+
+/* Input styles */
+input {
+    padding: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+input:focus {
+    outline: none;
+    border-color: var(--secondary-color);
+}
+
+/* Section styles */
+section {
+    background-color: white;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+section h2 {
+    margin-bottom: 15px;
+    color: var(--primary-color);
+}
+
+.team-controls, .round-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+/* Teams list styles */
+#teamsList {
+    display: grid;
+    gap: 10px;
+}
+
+.team-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    background-color: var(--background-color);
+    border-radius: 4px;
+}
+
+/* Scoreboard styles */
+#scoreboardTable {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+#scoreboardTable th,
+#scoreboardTable td {
+    padding: 12px;
+    text-align: center;
+    border: 1px solid var(--border-color);
+}
+
+#scoreboardTable th {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+#scoreboardTable tr:nth-child(even) {
+    background-color: var(--background-color);
+}
+
+#scoreboardTable tr:nth-child(even) td {
+    color: #fff;
+    background: rgba(255,255,255,0.15);
+}
+
+#scoreboardTable tr:nth-child(odd) td {
+    color: #222;
+}
+
+.score-input {
+    width: 60px;
+    text-align: center;
+}
+
+/* Enhanced styles for leaderboard and statistics */
+#leaderboardDisplay table {
+    background: rgba(255,255,255,0.08);
+    border-radius: 8px;
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+#leaderboardDisplay th, #leaderboardDisplay td {
+    border-bottom: 1px solid #000000;
+    color: #222;
+    background: rgba(255,255,255,0.85);
+    font-weight: 600;
+}
+#leaderboardDisplay th {
+    background: #000000;
+    color: #fff;
+    font-size: 1.1em;
+}
+#leaderboardDisplay tr.winner td {
+    background: #ffe066;
+    color: #222;
+    font-weight: bold;
+}
+
+/* Center statistics vertically in leaderboard tab */
+#leaderboardSection > div {
+    min-height: 60vh;
+    align-items: center !important;
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 32px;
+}
+
+.stats-grid .stat-card {
+    background: #fffbe6;
+    border: 2px solid #000000;
+    color: #222;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    font-weight: 600;
+}
+.stats-grid .stat-card h3 {
+    color: #ff00ff;
+    font-size: 1.1em;
+    margin-bottom: 8px;
+}
+.stats-grid .stat-card p {
+    color: #222;
+    font-size: 1.1em;
+    margin: 0;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .container {
+        padding: 10px;
+    }
+
+    .team-controls, .round-controls {
+        flex-direction: column;
+    }
+
+    #scoreboardTable {
+        display: block;
+        overflow-x: auto;
+    }
+}
