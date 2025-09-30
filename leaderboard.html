@@ -4,24 +4,19 @@
   <meta charset="UTF-8">
   <title>Quiz Leaderboard</title>
   <link rel="stylesheet" href="styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js"></script>
   <style>
     .qr-container { text-align: right; margin-bottom: 1em; }
     .archive-list { margin-top: 2em; }
   </style>
 </head>
 <body>
-  <div class="neon-box" style="max-width: 700px; margin: 2em auto;">
-    <h1>Leaderboard</h1>
-    <div class="qr-container">
-      <img id="qr" src="" alt="QR kód na túto stránku" width="150" height="150">
+  <div style="width:100%; display:flex; flex-direction:column; align-items:center;">
+    <div id="archive-list-container" style="width:100%; display:flex; justify-content:flex-start; align-items:center; margin-bottom:24px;">
+      <!-- Dropdown sa vloží sem -->
     </div>
     <div id="leaderboard"></div>
-    <div class="archive-list">
-      <h2>Archív kvízov</h2>
-      <ul id="quiz-archive"></ul>
-    </div>
-    <div id="fallback" style="color: red; display: none;">
+    <div id="fallback" style="color: red; display: none; margin-top:16px;">
       Nepodarilo sa načítať leaderboard z databázy. Skúšam fallback...
     </div>
   </div>
@@ -31,29 +26,52 @@
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJwa2lweWZhZmtkbmRjYW9lZHRxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkxNzU5MDUsImV4cCI6MjA3NDc1MTkwNX0.qYsJffts9lkaUIdCDRM_4Yj9EP0-3yCAgNj8SMMH_VY';
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // QR kód na túto stránku
-    document.getElementById('qr').src =
-      'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' +
-      encodeURIComponent(window.location.href);
+    // QR kód odstránený
 
     // Zisti quizId z URL
     const urlParams = new URLSearchParams(window.location.search);
     const quizId = urlParams.get('quizId');
 
-    async function renderLeaderboard() {
+    // === Interaktívny dropdown na výber quizu ===
+    function renderQuizDropdown(quizzes, onSelect, label = 'Vyber quiz:') {
+      let old = document.getElementById('quizDropdown');
+      if (old) old.remove();
+      const container = document.createElement('div');
+      container.id = 'quizDropdown';
+      container.style = 'display:flex; align-items:center; gap:12px; margin-left:24px;';
+      const lbl = document.createElement('label');
+      lbl.textContent = 'Kvízy:';
+      lbl.style = 'font-weight:bold; font-size:1.1em; color:#0ff; margin-right:8px;';
+      container.appendChild(lbl);
+      const select = document.createElement('select');
+      select.style = 'padding:8px 16px; font-size:1.1em; border-radius:12px; border:1px solid #0ff; background:#222; color:#0ff; margin-right:12px;';
+      quizzes.forEach(q => {
+        const option = document.createElement('option');
+        option.value = q.id;
+        option.textContent = `${q.title} (${q.created_at?.slice(0,10)})`;
+        select.appendChild(option);
+      });
+      container.appendChild(select);
+      const btn = document.createElement('button');
+      btn.textContent = 'Zobraziť';
+      btn.className = 'neon-button';
+      btn.style = 'margin-left:8px;';
+      btn.onclick = () => {
+        onSelect(select.value);
+      };
+      container.appendChild(btn);
+      document.getElementById('archive-list-container').innerHTML = '';
+      document.getElementById('archive-list-container').appendChild(container);
+    }
+
+    let currentQuizId = quizId;
+
+    async function renderLeaderboard(quizIdOverride) {
       let data;
       try {
-        if (quizId) {
-          // Fetch konkrétny quiz
-          const { data: quiz } = await supabase
-            .from('quizzes')
-            .select('id, title, created_at')
-            .eq('id', quizId)
-            .single();
-          if (!quiz) throw new Error('Quiz nenájdený');
-          data = await fetchLeaderboardForQuiz(quiz.id);
-        } else {
-          // Najnovší quiz
+        let idToUse = quizIdOverride || currentQuizId;
+        // Ak nie je quizId, automaticky zober najnovší quiz
+        if (!idToUse) {
           const { data: quiz } = await supabase
             .from('quizzes')
             .select('id, title, created_at')
@@ -61,10 +79,18 @@
             .limit(1)
             .single();
           if (!quiz) throw new Error('Žiadny quiz');
-          data = await fetchLeaderboardForQuiz(quiz.id);
+          idToUse = quiz.id;
         }
-        renderTable(data);
-        renderArchive();
+        // Fetch konkrétny quiz
+        const { data: quiz } = await supabase
+          .from('quizzes')
+          .select('id, title, created_at')
+          .eq('id', idToUse)
+          .single();
+        if (!quiz) throw new Error('Quiz nenájdený');
+  data = await fetchLeaderboardForQuiz(quiz.id);
+  renderTable(data);
+  await renderArchive();
       } catch (e) {
         document.getElementById('fallback').style.display = '';
         // Fallback: načítaj leaderboard.json
@@ -81,32 +107,69 @@
     }
 
     async function fetchLeaderboardForQuiz(quizId) {
-      const { data: teams } = await supabase
-        .from('quizzes')
-        .select('id, title, created_at')
-        .eq('id', quizId)
-        .single();
-      const { data: rounds } = await supabase
+      const { data: teams, error: teamsError } = await supabase
+        .from('teams')
+        .select('id, name')
+        .eq('quiz_id', quizId);
+      const { data: rounds, error: roundsError } = await supabase
         .from('rounds')
         .select('id, name, round_order')
         .eq('quiz_id', quizId)
         .order('round_order');
-      const { data: scores } = await supabase
+      const { data: scores, error: scoresError } = await supabase
         .from('scores')
         .select('team_id, round_id, score');
+      // Debug panel odstránený
       // Spočítaj total per team
-      const leaderboard = teams.map(team => {
+      // Výpočet leaderboardu a štatistík
+      const leaderboard = (teams || []).map(team => {
         let total = 0;
-        rounds.forEach(round => {
-          const s = scores.find(
+        let roundScores = [];
+        (rounds || []).forEach(round => {
+          const s = (scores || []).find(
             sc => sc.team_id === team.id && sc.round_id === round.id
           );
-          total += s ? Number(s.score) : 0;
+          const score = s ? Number(s.score) : 0;
+          total += score;
+          roundScores.push(score);
         });
-        return { team: team.name, total };
+        return { team: team.name, teamId: team.id, total, roundScores };
       });
       leaderboard.sort((a, b) => b.total - a.total);
-      return { leaderboard, rounds };
+
+      // Štatistiky
+      let stats = {
+        topScore: { team: '', score: 0 },
+        easiestRound: { round: '', avgScore: 0 },
+        hardestRound: { round: '', avgScore: Infinity },
+        bestRound: { team: '', round: '', score: 0 }
+      };
+      (rounds || []).forEach(round => {
+        let roundTotal = 0;
+        (teams || []).forEach(team => {
+          const s = (scores || []).find(
+            sc => sc.team_id === team.id && sc.round_id === round.id
+          );
+          const score = s ? Number(s.score) : 0;
+          roundTotal += score;
+          if (score > stats.bestRound.score) {
+            stats.bestRound = { team: team.name, round: round.name, score };
+          }
+        });
+        const avgScore = roundTotal / (teams?.length || 1);
+        if (avgScore > stats.easiestRound.avgScore) {
+          stats.easiestRound = { round: round.name, avgScore };
+        }
+        if (avgScore < stats.hardestRound.avgScore) {
+          stats.hardestRound = { round: round.name, avgScore };
+        }
+      });
+      leaderboard.forEach(row => {
+        if (row.total > stats.topScore.score) {
+          stats.topScore = { team: row.team, score: row.total };
+        }
+      });
+      return { leaderboard, rounds, stats };
     }
 
     function renderTable(data) {
@@ -114,12 +177,44 @@
         document.getElementById('leaderboard').innerHTML = '<p>Žiadne dáta.</p>';
         return;
       }
-      let html = '<table><thead><tr><th>Poradie</th><th>Tím</th><th>Body</th></tr></thead><tbody>';
+      // Medaily SVG s farbami
+      const medals = [
+        '<span class="medal gold" style="color:#FFD700;" title="1. miesto">🥇</span>',
+        '<span class="medal silver" style="color:#C0C0C0;" title="2. miesto">🥈</span>',
+        '<span class="medal bronze" style="color:#CD7F32;" title="3. miesto">🥉</span>'
+      ];
+      const trophy = '<span class="trophy" title="Trofej">🏆</span>';
+      const playerIcon = '<span class="player-icon">&#128100;</span>';
+      // Dynamické stĺpce pre kolá
+      let html = `<div class="leaderboard-modern single-col">
+        <div class="leaderboard-header">Leaderboard</div>
+        <div class="leaderboard-col" style="width:75vw; max-width:900px; margin:0 auto;">
+          <div class="leaderboard-row leaderboard-row-header">
+            <div class="leaderboard-cell">&nbsp;</div>
+            <div class="leaderboard-cell">Tím</div>
+            
+            ${(data.rounds||[]).map((r, idx) => `<div class='leaderboard-cell round-score-header'>${idx+1}. kolo</div>`).join('')}
+             <div class='leaderboard-cell total-score-header'>Súčet</div>
+          </div>`;
       data.leaderboard.forEach((row, i) => {
-        html += `<tr${i === 0 ? ' class="winner"' : ''}><td>${i + 1}</td><td>${row.team}</td><td>${row.total}</td></tr>`;
+        html += `<div class="leaderboard-row${i < 3 ? ' leaderboard-top' : ''}">
+          <div class="leaderboard-cell">${i < 3 ? medals[i] : ''}</div>
+          <div class="leaderboard-cell">${row.team}</div>
+          
+          ${(row.roundScores||[]).map(score => `<div class='leaderboard-cell round-score-cell'>${score}</div>`).join('')}
+           <div class='leaderboard-cell total-score-cell'><b>${row.total}</b></div>
+        </div>`;
       });
-      html += '</tbody></table>';
+      html += '</div></div>';
       document.getElementById('leaderboard').innerHTML = html;
+    }
+
+    function renderStatistics(data) {
+      if (!data || !data.stats) return;
+      document.getElementById('topScore').textContent = `${data.stats.topScore.team} (${data.stats.topScore.score} bodov)`;
+      document.getElementById('easiestRound').textContent = `${data.stats.easiestRound.round} (${Math.round(data.stats.easiestRound.avgScore)} bodov priemer)`;
+      document.getElementById('hardestRound').textContent = `${data.stats.hardestRound.round} (${Math.round(data.stats.hardestRound.avgScore)} bodov priemer)`;
+      document.getElementById('bestRound').textContent = `${data.stats.bestRound.team} (${data.stats.bestRound.round}: ${data.stats.bestRound.score} bodov)`;
     }
 
     async function renderArchive() {
@@ -128,13 +223,10 @@
         .select('id, title, created_at')
         .order('created_at', { ascending: false })
         .limit(20);
-      const ul = document.getElementById('quiz-archive');
-      ul.innerHTML = '';
-      (quizzes || []).forEach(q => {
-        const li = document.createElement('li');
-        li.innerHTML = `<a href="?quizId=${q.id}">${q.title || 'Quiz'} (${q.created_at.slice(0, 10)})</a>`;
-        ul.appendChild(li);
-      });
+      renderQuizDropdown(quizzes || [], async (quizId) => {
+        currentQuizId = quizId;
+        await renderLeaderboard(quizId);
+      }, 'Kvízy:');
     }
 
     renderLeaderboard();
