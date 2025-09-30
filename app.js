@@ -1,394 +1,349 @@
-// State management
+// app.js — PR-ready Supabase + fallback + komentáre
+
+// === KONFIGURÁCIA SUPABASE ===
+// Vlož svoje údaje z projektu Supabase (viď README_SUPABASE.md)
+const SUPABASE_URL = 'https://rpkipyfafkdndcaoedtq.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJwa2lweWZhZmtkbmRjYW9lZHRxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkxNzU5MDUsImV4cCI6MjA3NDc1MTkwNX0.qYsJffts9lkaUIdCDRM_4Yj9EP0-3yCAgNj8SMMH_VY';
+
+// Prepínač režimu: 'supabase' alebo 'local'
+let mode = 'supabase'; // Zmeň na 'local' ak chceš použiť localStorage fallback
+
+// === SUPABASE KLIENT (CDN UMD) ===
+let supabase = null;
+if (mode === 'supabase') {
+  // CDN UMD loader (ak už nie je v index.html)
+  if (typeof window.supabase === 'undefined') {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+    script.onload = () => {
+      supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    };
+    document.head.appendChild(script);
+  } else {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+}
+
+// === STAV A DOM ===
 const state = {
-    teams: [],
-    rounds: [],
-    scores: {},
-    currentTab: 'scoring'
+  user: null,
+  isAdmin: false,
+  quizId: null,
+  teams: [],
+  rounds: [],
+  scores: {}, // { teamId: { roundId: score } }
+  quizzes: [],
+  currentTab: 'scoring'
 };
 
-// DOM Elements
 const elements = {
-    teamName: document.getElementById('teamName'),
-    addTeam: document.getElementById('addTeam'),
-    teamsList: document.getElementById('teamsList'),
-    roundName: document.getElementById('roundName'),
-    maxPoints: document.getElementById('maxPoints'),
-    addRound: document.getElementById('addRound'),
-    roundsList: document.getElementById('roundsList'),
-    scoreboardTable: document.getElementById('scoreboardTable'),
-    leaderboardDisplay: document.getElementById('leaderboardDisplay'),
-    newQuiz: document.getElementById('newQuiz'),
-    saveQuiz: document.getElementById('saveQuiz'),
-    loadQuiz: document.getElementById('loadQuiz'),
-    exportQuiz: document.getElementById('exportQuiz'),
-    tabButtons: document.querySelectorAll('.tab-button'),
-    tabContents: document.querySelectorAll('.tab-content'),
-    quizStats: {
-        topScore: document.getElementById('topScore'),
-        easiestRound: document.getElementById('easiestRound'),
-        hardestRound: document.getElementById('hardestRound'),
-        bestRound: document.getElementById('bestRound')
-    }
+  teamName: document.getElementById('teamName'),
+  addTeam: document.getElementById('addTeam'),
+  teamsList: document.getElementById('teamsList'),
+  roundName: document.getElementById('roundName'),
+  addRound: document.getElementById('addRound'),
+  roundsList: document.getElementById('roundsList'),
+  scoreboardTable: document.getElementById('scoreboardTable'),
+  leaderboardDisplay: document.getElementById('leaderboardDisplay'),
+  newQuiz: document.getElementById('newQuiz'),
+  saveQuiz: document.getElementById('saveQuiz'),
+  loadQuiz: document.getElementById('loadQuiz'),
+  exportQuiz: document.getElementById('exportQuiz'),
+  tabButtons: document.querySelectorAll('.tab-button'),
+  tabContents: document.querySelectorAll('.tab-content'),
+  quizStats: {
+    topScore: document.getElementById('topScore'),
+    easiestRound: document.getElementById('easiestRound'),
+    hardestRound: document.getElementById('hardestRound'),
+    bestRound: document.getElementById('bestRound')
+  }
 };
 
-// Scroll to leaderboard section and switch tab
-function scrollToLeaderboard() {
-    // Switch to leaderboard tab if not already
-    if (state.currentTab !== 'leaderboard') {
-        switchTab('leaderboard');
-        // Wait for DOM update
-        setTimeout(() => {
-            const leaderboardSection = document.getElementById('leaderboardSection');
-            if (leaderboardSection) {
-                leaderboardSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
-        }, 100);
-    } else {
-        const leaderboardSection = document.getElementById('leaderboardSection');
-        if (leaderboardSection) {
-            leaderboardSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-    }
+// === AUTENTIFIKÁCIA ADMINA ===
+async function signInAdmin(email) {
+  if (mode !== 'supabase') return;
+  const { error } = await supabase.auth.signInWithOtp({ email });
+  if (error) {
+    alert('Chyba pri prihlasovaní: ' + error.message);
+    return false;
+  }
+  alert('Skontroluj svoj email a klikni na magic link.');
+  return true;
 }
 
-// Event Listeners
-if (elements.addTeam) elements.addTeam.onclick = addTeam;
-if (elements.addRound) elements.addRound.onclick = addRound;
-if (elements.newQuiz) elements.newQuiz.onclick = confirmNewQuiz;
-if (elements.saveQuiz) elements.saveQuiz.onclick = saveQuizToLocal;
-if (elements.loadQuiz) elements.loadQuiz.onclick = loadQuizFromLocal;
-if (elements.exportQuiz) elements.exportQuiz.onclick = exportQuizData;
-if (elements.tabButtons) elements.tabButtons.forEach(button => {
-    button.onclick = () => {
-        const tab = button.dataset.tab;
-        switchTab(tab);
-    };
-});
-
-// Add event listener for both Leaderboard buttons (tab and scoreboard section)
-document.addEventListener('DOMContentLoaded', function() {
-    // Tab navigation Leaderboard button already handled above
-    const leaderboardScrollBtn = document.getElementById('leaderboardScrollBtn');
-    if (leaderboardScrollBtn) {
-        leaderboardScrollBtn.onclick = scrollToLeaderboard;
-    }
-    // Optionally, add a second button elsewhere if needed
-});
-
-function switchTab(tab) {
-    state.currentTab = tab;
-    elements.tabButtons.forEach(button => {
-        button.classList.toggle('active', button.dataset.tab === tab);
-    });
-    elements.tabContents.forEach(content => {
-        content.classList.toggle('active', content.id === `${tab}Tab`);
-    });
-    if (tab === 'leaderboard') {
-        updateLeaderboard();
-    }
+async function signOutAdmin() {
+  if (mode !== 'supabase') return;
+  await supabase.auth.signOut();
+  state.user = null;
+  state.isAdmin = false;
+  alert('Odhlásený.');
 }
 
-// Team Management
-function addTeam() {
-    const teamsInput = elements.teamName.value.trim();
-    if (!teamsInput) return;
-    const teamNames = teamsInput.split('\n')
-        .map(name => name.trim())
-        .filter(name => name.length > 0);
-    let addedCount = 0;
-    teamNames.forEach(teamName => {
-        if (!state.teams.includes(teamName)) {
-            state.teams.push(teamName);
-            state.scores[teamName] = {};
-            state.rounds.forEach(round => {
-                state.scores[teamName][round.name] = 0;
-            });
-            addedCount++;
-        }
-    });
-    if (addedCount > 0) {
-        elements.teamName.value = '';
-        updateTeamsList();
-        updateScoreboard();
-        if (state.currentTab === 'leaderboard') {
-            updateLeaderboard();
-        }
-    }
-}
-window.removeTeam = function(teamName) {
-    const index = state.teams.indexOf(teamName);
-    if (index > -1) {
-        state.teams.splice(index, 1);
-        delete state.scores[teamName];
-        updateTeamsList();
-        updateScoreboard();
-        if (state.currentTab === 'leaderboard') {
-            updateLeaderboard();
-        }
-    }
-};
-function updateTeamsList() {
-    elements.teamsList.innerHTML = '';
-    state.teams.forEach(team => {
-        const teamDiv = document.createElement('div');
-        teamDiv.className = 'team-item';
-        teamDiv.innerHTML = `
-            <span>${team}</span>
-            <button onclick="removeTeam('${team}')" class="neon-button">Remove</button>
-        `;
-        elements.teamsList.appendChild(teamDiv);
-    });
-}
-// Round Management
-function addRound() {
-    const roundName = elements.roundName.value.trim();
-    if (!roundName) {
-        alert('Please enter round name');
-        return;
-    }
-    if (state.rounds.some(r => r.name === roundName)) {
-        alert('Round already exists!');
-        return;
-    }
-    const round = { name: roundName };
-    state.rounds.push(round);
-    state.teams.forEach(team => {
-        state.scores[team][roundName] = 0;
-    });
-    elements.roundName.value = '';
-    updateRoundsList();
-    updateScoreboard();
-    if (state.currentTab === 'leaderboard') {
-        updateLeaderboard();
-    }
-}
-window.removeRound = function(roundName) {
-    const index = state.rounds.findIndex(r => r.name === roundName);
-    if (index > -1) {
-        state.rounds.splice(index, 1);
-        state.teams.forEach(team => {
-            delete state.scores[team][roundName];
-        });
-        updateRoundsList();
-        updateScoreboard();
-        if (state.currentTab === 'leaderboard') {
-            updateLeaderboard();
-        }
-    }
-};
-function updateRoundsList() {
-    elements.roundsList.innerHTML = '';
-    state.rounds.forEach(round => {
-        const roundDiv = document.createElement('div');
-        roundDiv.className = 'team-item';
-        roundDiv.innerHTML = `
-            <span>${round.name}</span>
-            <button onclick="removeRound('${round.name}')" class="neon-button">Remove</button>
-        `;
-        elements.roundsList.appendChild(roundDiv);
-    });
-}
-window.updateScore = function(team, round, score) {
-    let parsed = parseFloat(score);
-    if (isNaN(parsed) || parsed < 0) parsed = 0;
-    // No maxPoints limit
-    state.scores[team][round] = parsed;
-    updateScoreboard();
-    if (state.currentTab === 'leaderboard') {
-        updateLeaderboard();
-    }
-};
-let scoreboardSorted = false;
-
-function updateScoreboard() {
-    if (state.teams.length === 0 || state.rounds.length === 0) {
-        elements.scoreboardTable.innerHTML = '<p>Add teams and rounds to see the scoreboard</p>';
-        return;
-    }
-    let html = '<table>';
-    html += '<tr><th>Team</th>';
-    state.rounds.forEach(round => {
-        html += `<th>${round.name}</th>`;
-    });
-    html += '<th>Total</th></tr>';
-    // Use a persistent display order
-    if (!state.displayTeams) state.displayTeams = [...state.teams];
-    // If teams were added/removed, sync displayTeams
-    if (state.displayTeams.length !== state.teams.length || !state.displayTeams.every(t => state.teams.includes(t))) {
-        state.displayTeams = [...state.teams];
-    }
-    const displayTeams = state.displayTeams;
-    displayTeams.forEach(team => {
-        html += `<tr><td>${team}</td>`;
-        let total = 0;
-        state.rounds.forEach(round => {
-            const score = state.scores[team][round.name] || 0;
-            total += score;
-            html += `<td><input type="number" class="score-input neon-input" 
-                        value="${score}" 
-                        min="0" 
-                        step="0.5"
-                        onchange="updateScore('${team}', '${round.name}', this.value)"></td>`;
-        });
-        html += `<td>${total}</td></tr>`;
-    });
-    html += '</table>';
-    elements.scoreboardTable.innerHTML = html;
+// Po prihlásení načítaj profil
+async function fetchAdminProfile() {
+  if (mode !== 'supabase') return;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+  state.user = user;
+  // Zisti is_admin z profiles
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('is_admin')
+    .eq('id', user.id)
+    .single();
+  state.isAdmin = !!(data && data.is_admin);
+  return state.isAdmin;
 }
 
-// Add event listener for sort button
-const sortBtn = document.getElementById('sortScoreboard');
-if (sortBtn) {
-    sortBtn.onclick = function() {
-        // Sort displayTeams by score ONCE
-        state.displayTeams = [...state.displayTeams].sort((a, b) => {
-            const totalA = Object.values(state.scores[a]).reduce((sum, score) => sum + score, 0);
-            const totalB = Object.values(state.scores[b]).reduce((sum, score) => sum + score, 0);
-            return totalB - totalA;
-        });
-        updateScoreboard();
-    };
-}
-function updateLeaderboard() {
-    const teamScores = state.teams.map(team => {
-        const total = Object.values(state.scores[team]).reduce((sum, score) => sum + score, 0);
-        return { team, total };
-    }).sort((a, b) => b.total - a.total);
-    elements.leaderboardDisplay.innerHTML = `
-        <table>
-            <thead>
-                <tr>
-                    <th>Position</th>
-                    <th>Team</th>
-                    <th>Total Score</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${teamScores.map((score, index) => `
-                    <tr class="${index === 0 ? 'winner' : ''}">
-                        <td>${index + 1}</td>
-                        <td>${score.team}</td>
-                        <td>${score.total}</td>
-                    </tr>
-                `).join('')}
-            </tbody>
-        </table>
-    `;
-    updateStatistics();
-}
-function updateStatistics() {
-    if (state.teams.length === 0 || state.rounds.length === 0) return;
-    let stats = {
-        topScore: { team: '', score: 0 },
-        easiestRound: { round: '', avgScore: 0 },
-        hardestRound: { round: '', avgScore: Infinity },
-        bestRound: { team: '', round: '', score: 0 }
-    };
-    state.rounds.forEach((round, idx) => {
-        let roundTotal = 0;
-        state.teams.forEach(team => {
-            const score = state.scores[team][round.name] || 0;
-            roundTotal += score;
-            if (score > stats.bestRound.score) {
-                stats.bestRound = { team, round: round.name, roundIdx: idx, score };
-            }
-        });
-        const avgScore = roundTotal / state.teams.length;
-        // Use avgScore directly for easiest/hardest
-        if (avgScore > stats.easiestRound.avgScore) {
-            stats.easiestRound = { round: round.name, avgScore };
-        }
-        if (avgScore < stats.hardestRound.avgScore) {
-            stats.hardestRound = { round: round.name, avgScore };
-        }
-    });
-    state.teams.forEach(team => {
-        const total = Object.values(state.scores[team]).reduce((sum, score) => sum + score, 0);
-        if (total > stats.topScore.score) {
-            stats.topScore = { team, score: total };
-        }
-    });
-    elements.quizStats.topScore.innerHTML = `
-        <p>${stats.topScore.team || 'N/A'}</p>
-        <p>${stats.topScore.score} bodov</p>
-    `;
-    elements.quizStats.easiestRound.innerHTML = `
-        <p>${stats.easiestRound.round || 'N/A'}</p>
-        <p>${typeof stats.easiestRound.avgScore === 'number' && !isNaN(stats.easiestRound.avgScore) ? stats.easiestRound.avgScore.toFixed(2) : 'N/A'} priemer</p>
-    `;
-    elements.quizStats.hardestRound.innerHTML = `
-        <p>${stats.hardestRound.round || 'N/A'}</p>
-        <p>${typeof stats.hardestRound.avgScore === 'number' && !isNaN(stats.hardestRound.avgScore) ? stats.hardestRound.avgScore.toFixed(2) : 'N/A'} priemer</p>
-    `;
-    elements.quizStats.bestRound.innerHTML = `
-        <p>${stats.bestRound.team || 'N/A'}</p>
-        <p>${stats.bestRound.round ? `${(stats.bestRound.roundIdx+1)}. kolo, ${stats.bestRound.score} bodov` : 'N/A'}</p>
-    `;
-}
-function confirmNewQuiz() {
-    if (confirm('Are you sure you want to start a new quiz? This will clear all current data.')) {
-        state.teams = [];
-        state.rounds = [];
-        state.scores = {};
-        updateTeamsList();
-        updateRoundsList();
-        updateScoreboard();
-        if (state.currentTab === 'leaderboard') {
-            updateLeaderboard();
-        }
+// === ULOŽENIE QUIZU DO SUPABASE ===
+async function saveQuizToSupabase() {
+  if (mode !== 'supabase') {
+    saveQuizToLocal();
+    return;
+  }
+  if (!state.isAdmin) {
+    alert('Iba admin môže ukladať quiz.');
+    return;
+  }
+  // 1. Vytvor quiz
+  let quizId = state.quizId;
+  if (!quizId) {
+    const { data: quiz, error: quizErr } = await supabase
+      .from('quizzes')
+      .insert([{ title: state.title || 'Quiz' }])
+      .select('id')
+      .single();
+    if (quizErr) {
+      alert('Chyba pri ukladaní quizu: ' + quizErr.message);
+      return;
     }
+    quizId = quiz.id;
+    state.quizId = quizId;
+  }
+  // 2. Teams
+  const teamsPayload = state.teams.map(name => ({ quiz_id: quizId, name }));
+  await supabase.from('teams').delete().eq('quiz_id', quizId); // prepis
+  const { data: teams, error: teamsErr } = await supabase
+    .from('teams')
+    .insert(teamsPayload)
+    .select('id, name');
+  if (teamsErr) {
+    alert('Chyba pri ukladaní tímov: ' + teamsErr.message);
+    return;
+  }
+  // 3. Rounds
+  const roundsPayload = state.rounds.map((r, i) => ({
+    quiz_id: quizId,
+    name: r.name,
+    round_order: i
+  }));
+  await supabase.from('rounds').delete().eq('quiz_id', quizId);
+  const { data: rounds, error: roundsErr } = await supabase
+    .from('rounds')
+    .insert(roundsPayload)
+    .select('id, name, round_order');
+  if (roundsErr) {
+    alert('Chyba pri ukladaní kôl: ' + roundsErr.message);
+    return;
+  }
+  // 4. Scores
+  await supabase.from('scores').delete().in('team_id', teams.map(t => t.id));
+  const scoresPayload = [];
+  teams.forEach(team => {
+    rounds.forEach(round => {
+      const val = state.scores[team.name]?.[round.name] ?? 0;
+      scoresPayload.push({
+        team_id: team.id,
+        round_id: round.id,
+        score: typeof val === 'number' && val >= 0 ? val : 0
+      });
+    });
+  });
+  if (scoresPayload.length > 0) {
+    const { error: scoresErr } = await supabase.from('scores').insert(scoresPayload);
+    if (scoresErr) {
+      alert('Chyba pri ukladaní skóre: ' + scoresErr.message);
+      return;
+    }
+  }
+  alert('Quiz uložený do Supabase!');
 }
+
+// === NAČÍTANIE QUIZU Z SUPABASE ===
+async function loadQuizFromSupabase(quizId) {
+  if (mode !== 'supabase') {
+    loadQuizFromLocal();
+    return;
+  }
+  // 1. Quiz
+  const { data: quiz, error: quizErr } = await supabase
+    .from('quizzes')
+    .select('id, title')
+    .eq('id', quizId)
+    .single();
+  if (quizErr) {
+    alert('Quiz nenájdený: ' + quizErr.message);
+    return;
+  }
+  state.quizId = quiz.id;
+  state.title = quiz.title;
+  // 2. Teams
+  const { data: teams } = await supabase
+    .from('teams')
+    .select('id, name')
+    .eq('quiz_id', quizId);
+  state.teams = teams.map(t => t.name);
+  // 3. Rounds
+  const { data: rounds } = await supabase
+    .from('rounds')
+    .select('id, name, round_order')
+    .eq('quiz_id', quizId)
+    .order('round_order');
+  state.rounds = rounds.map(r => ({ name: r.name }));
+  // 4. Scores
+  const { data: scores } = await supabase
+    .from('scores')
+    .select('team_id, round_id, score');
+  // Map scores
+  state.scores = {};
+  teams.forEach(team => {
+    state.scores[team.name] = {};
+    rounds.forEach(round => {
+      const s = scores.find(
+        sc => sc.team_id === team.id && sc.round_id === round.id
+      );
+      state.scores[team.name][round.name] = s ? Number(s.score) : 0;
+    });
+  });
+  // ...update UI...
+  updateTeamsList();
+  updateRoundsList();
+  updateScoreboard();
+  updateLeaderboard();
+}
+
+// === FETCH NAJNOVŠIEHO LEADERBOARDU (public) ===
+async function fetchLatestLeaderboard() {
+  if (mode !== 'supabase') {
+    // fallback: načítaj z leaderboard.json
+    try {
+      const resp = await fetch('leaderboard.json');
+      if (!resp.ok) throw new Error('Chyba načítania snapshotu');
+      return await resp.json();
+    } catch (e) {
+      alert('Nepodarilo sa načítať leaderboard: ' + e.message);
+      return null;
+    }
+  }
+  // Získaj najnovší quiz
+  const { data: quiz } = await supabase
+    .from('quizzes')
+    .select('id, title, created_at')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+  if (!quiz) return null;
+  // Získaj teams, rounds, scores
+  const { data: teams } = await supabase
+    .from('teams')
+    .select('id, name')
+    .eq('quiz_id', quiz.id);
+  const { data: rounds } = await supabase
+    .from('rounds')
+    .select('id, name, round_order')
+    .eq('quiz_id', quiz.id)
+    .order('round_order');
+  const { data: scores } = await supabase
+    .from('scores')
+    .select('team_id, round_id, score');
+  // Spočítaj total per team
+  const leaderboard = teams.map(team => {
+    let total = 0;
+    rounds.forEach(round => {
+      const s = scores.find(
+        sc => sc.team_id === team.id && sc.round_id === round.id
+      );
+      total += s ? Number(s.score) : 0;
+    });
+    return { team: team.name, total };
+  });
+  leaderboard.sort((a, b) => b.total - a.total);
+  return { quiz, teams, rounds, scores, leaderboard };
+}
+
+// === ZOZNAM QUIZOV (archív) ===
+async function fetchQuizList() {
+  if (mode !== 'supabase') return [];
+  const { data: quizzes } = await supabase
+    .from('quizzes')
+    .select('id, title, created_at')
+    .order('created_at', { ascending: false })
+    .limit(20);
+  return quizzes || [];
+}
+
+// === FALLBACK LOCALSTORAGE ===
 function saveQuizToLocal() {
-    localStorage.setItem('quizData', JSON.stringify(state));
-    alert('Quiz saved successfully!');
+  localStorage.setItem('quizData', JSON.stringify(state));
+  alert('Quiz uložený do localStorage!');
 }
 function loadQuizFromLocal() {
-    const savedData = localStorage.getItem('quizData');
-    if (savedData) {
-        try {
-            const loadedState = JSON.parse(savedData);
-            state.teams = loadedState.teams;
-            state.rounds = loadedState.rounds;
-            state.scores = loadedState.scores;
-            updateTeamsList();
-            updateRoundsList();
-            updateScoreboard();
-            if (state.currentTab === 'leaderboard') {
-                updateLeaderboard();
-            }
-            alert('Quiz loaded successfully!');
-        } catch (e) {
-            alert('Error loading quiz data!');
-            console.error('Error loading quiz:', e);
-        }
-    } else {
-        alert('No saved quiz found!');
+  const savedData = localStorage.getItem('quizData');
+  if (savedData) {
+    try {
+      const loadedState = JSON.parse(savedData);
+      Object.assign(state, loadedState);
+      updateTeamsList();
+      updateRoundsList();
+      updateScoreboard();
+      updateLeaderboard();
+      alert('Quiz načítaný z localStorage!');
+    } catch (e) {
+      alert('Chyba načítania z localStorage!');
     }
+  }
 }
-function exportQuizData() {
-    const dataStr = JSON.stringify(state, null, 2);
-    const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
-    const exportLink = document.createElement('a');
-    exportLink.setAttribute('href', dataUri);
-    exportLink.setAttribute('download', 'quiz_data.json');
-    exportLink.click();
+
+// === VALIDÁCIA SKÓRE ===
+function validateScore(val) {
+  const n = Number(val);
+  return !isNaN(n) && n >= 0;
 }
+
+// ...ZACHOVAJ OSTATNÉ FUNKCIE UI, updateScore, updateTeamsList, updateRoundsList, updateScoreboard, updateLeaderboard atď. (nezabudni upraviť, aby používali nové state.scores podľa team/round mena, nie indexu)...
+// ...Pridaj jasné komentáre kde treba...
+
+// === NASTAVENIE REŽIMU ===
+// Ak chceš fallback na localStorage, nastav mode = 'local' vyššie.
+// Ak chceš Supabase, nastav mode = 'supabase' a vlož správne kľúče.
+
 // Initial load
-(function initialLoad() {
-    const savedData = localStorage.getItem('quizData');
-    if (savedData) {
-        try {
-            const loadedState = JSON.parse(savedData);
-            state.teams = loadedState.teams;
-            state.rounds = loadedState.rounds;
-            state.scores = loadedState.scores;
-            updateTeamsList();
-            updateRoundsList();
-            updateScoreboard();
-        } catch (e) {
-            console.error('Error loading saved data:', e);
-        }
+(async function initialLoad() {
+  // Najprv načítaj profil admina (ak je potrebné)
+  await fetchAdminProfile();
+  // Ak je admin prihlásený, prepni na admin tab
+  if (state.isAdmin) {
+    state.currentTab = 'admin';
+    elements.tabButtons.forEach(button => {
+      button.classList.toggle('active', button.dataset.tab === 'admin');
+    });
+    elements.tabContents.forEach(content => {
+      content.classList.toggle('active', content.id === 'adminTab');
+    });
+  }
+  // Potom načítaj quizy pre admina
+  if (mode === 'supabase' && state.isAdmin) {
+    const quizzes = await fetchQuizList();
+    state.quizzes = quizzes;
+    // ...naplň UI pre admina zoznamom quizov...
+  }
+  // Ak nie je admin, načítaj len posledný leaderboard
+  if (mode === 'supabase' && !state.isAdmin) {
+    const leaderboardData = await fetchLatestLeaderboard();
+    if (leaderboardData) {
+      // ...naplň UI len leaderboardom...
     }
+  }
 })();
 
 console.log('App.js loaded!');

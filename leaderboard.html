@@ -1,54 +1,143 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="sk">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kvíz Factory Leaderboard</title>
-    <link rel="stylesheet" href="styles.css">
-    <style>
-        body, button, input, textarea, select, a {
-            pointer-events: none !important;
-            cursor: default !important;
-        }
-        table, th, td {
-            pointer-events: none !important;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>Quiz Leaderboard</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm"></script>
+  <style>
+    .qr-container { text-align: right; margin-bottom: 1em; }
+    .archive-list { margin-top: 2em; }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1 class="neon-text">Kvíz Factory</h1>
-            <div class="date-time neon-text">Leaderboard</div>
-        </header>
-        <main>
-            <section class="neon-box">
-                <h2>Current Rankings</h2>
-                <div id="leaderboardDisplay"></div>
-            </section>
-            <section class="neon-box">
-                <h2>Quiz Statistics</h2>
-                <div id="quizStats" class="stats-grid">
-                    <div class="stat-card">
-                        <h3>Top Score</h3>
-                        <div id="topScore"></div>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Easiest Round</h3>
-                        <div id="easiestRound"></div>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Most Difficult Round</h3>
-                        <div id="hardestRound"></div>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Best Single Round</h3>
-                        <div id="bestRound"></div>
-                    </div>
-                </div>
-            </section>
-        </main>
+  <div class="neon-box" style="max-width: 700px; margin: 2em auto;">
+    <h1>Leaderboard</h1>
+    <div class="qr-container">
+      <img id="qr" src="" alt="QR kód na túto stránku" width="150" height="150">
     </div>
-    <script src="leaderboard.js"></script>
+    <div id="leaderboard"></div>
+    <div class="archive-list">
+      <h2>Archív kvízov</h2>
+      <ul id="quiz-archive"></ul>
+    </div>
+    <div id="fallback" style="color: red; display: none;">
+      Nepodarilo sa načítať leaderboard z databázy. Skúšam fallback...
+    </div>
+  </div>
+  <script>
+    // === SUPABASE KONFIG ===
+    const SUPABASE_URL = 'https://rpkipyfafkdndcaoedtq.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJwa2lweWZhZmtkbmRjYW9lZHRxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkxNzU5MDUsImV4cCI6MjA3NDc1MTkwNX0.qYsJffts9lkaUIdCDRM_4Yj9EP0-3yCAgNj8SMMH_VY';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // QR kód na túto stránku
+    document.getElementById('qr').src =
+      'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' +
+      encodeURIComponent(window.location.href);
+
+    // Zisti quizId z URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const quizId = urlParams.get('quizId');
+
+    async function renderLeaderboard() {
+      let data;
+      try {
+        if (quizId) {
+          // Fetch konkrétny quiz
+          const { data: quiz } = await supabase
+            .from('quizzes')
+            .select('id, title, created_at')
+            .eq('id', quizId)
+            .single();
+          if (!quiz) throw new Error('Quiz nenájdený');
+          data = await fetchLeaderboardForQuiz(quiz.id);
+        } else {
+          // Najnovší quiz
+          const { data: quiz } = await supabase
+            .from('quizzes')
+            .select('id, title, created_at')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+          if (!quiz) throw new Error('Žiadny quiz');
+          data = await fetchLeaderboardForQuiz(quiz.id);
+        }
+        renderTable(data);
+        renderArchive();
+      } catch (e) {
+        document.getElementById('fallback').style.display = '';
+        // Fallback: načítaj leaderboard.json
+        try {
+          const resp = await fetch('leaderboard.json');
+          if (!resp.ok) throw new Error('Chyba načítania snapshotu');
+          const snapshot = await resp.json();
+          renderTable(snapshot);
+        } catch (e2) {
+          document.getElementById('leaderboard').innerHTML =
+            '<p>Leaderboard nie je dostupný.</p>';
+        }
+      }
+    }
+
+    async function fetchLeaderboardForQuiz(quizId) {
+      const { data: teams } = await supabase
+        .from('quizzes')
+        .select('id, title, created_at')
+        .eq('id', quizId)
+        .single();
+      const { data: rounds } = await supabase
+        .from('rounds')
+        .select('id, name, round_order')
+        .eq('quiz_id', quizId)
+        .order('round_order');
+      const { data: scores } = await supabase
+        .from('scores')
+        .select('team_id, round_id, score');
+      // Spočítaj total per team
+      const leaderboard = teams.map(team => {
+        let total = 0;
+        rounds.forEach(round => {
+          const s = scores.find(
+            sc => sc.team_id === team.id && sc.round_id === round.id
+          );
+          total += s ? Number(s.score) : 0;
+        });
+        return { team: team.name, total };
+      });
+      leaderboard.sort((a, b) => b.total - a.total);
+      return { leaderboard, rounds };
+    }
+
+    function renderTable(data) {
+      if (!data || !data.leaderboard) {
+        document.getElementById('leaderboard').innerHTML = '<p>Žiadne dáta.</p>';
+        return;
+      }
+      let html = '<table><thead><tr><th>Poradie</th><th>Tím</th><th>Body</th></tr></thead><tbody>';
+      data.leaderboard.forEach((row, i) => {
+        html += `<tr${i === 0 ? ' class="winner"' : ''}><td>${i + 1}</td><td>${row.team}</td><td>${row.total}</td></tr>`;
+      });
+      html += '</tbody></table>';
+      document.getElementById('leaderboard').innerHTML = html;
+    }
+
+    async function renderArchive() {
+      const { data: quizzes } = await supabase
+        .from('quizzes')
+        .select('id, title, created_at')
+        .order('created_at', { ascending: false })
+        .limit(20);
+      const ul = document.getElementById('quiz-archive');
+      ul.innerHTML = '';
+      (quizzes || []).forEach(q => {
+        const li = document.createElement('li');
+        li.innerHTML = `<a href="?quizId=${q.id}">${q.title || 'Quiz'} (${q.created_at.slice(0, 10)})</a>`;
+        ul.appendChild(li);
+      });
+    }
+
+    renderLeaderboard();
+  </script>
 </body>
 </html>
