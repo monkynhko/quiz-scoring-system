@@ -10,17 +10,21 @@ let mode = 'supabase'; // Zmeň na 'local' ak chceš použiť localStorage fallb
 
 // === SUPABASE KLIENT (CDN UMD) ===
 let supabase = null;
+let supabaseReady = Promise.resolve();
 if (mode === 'supabase') {
-  // CDN UMD loader (ak už nie je v index.html)
   if (typeof window.supabase === 'undefined') {
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
-    script.onload = () => {
-      supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    };
-    document.head.appendChild(script);
+    supabaseReady = new Promise(resolve => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js';
+      script.onload = () => {
+        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        resolve();
+      };
+      document.head.appendChild(script);
+    });
   } else {
     supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    supabaseReady = Promise.resolve();
   }
 }
 
@@ -67,7 +71,8 @@ async function signInAdmin(email) {
     alert('Chyba pri prihlasovaní: ' + error.message);
     return false;
   }
-  alert('Skontroluj svoj email a klikni na magic link.');
+  alert('Skontroluj svoj email a klikni na magic link. Po kliknutí sa stránka automaticky obnoví.');
+  setTimeout(() => location.reload(), 1000); // reload po návrate z magic linku
   return true;
 }
 
@@ -83,7 +88,11 @@ async function signOutAdmin() {
 async function fetchAdminProfile() {
   if (mode !== 'supabase') return;
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return false;
+  if (!user) {
+    state.user = null;
+    renderAuthButtons();
+    return false;
+  }
   state.user = user;
   // Zisti is_admin z profiles
   const { data, error } = await supabase
@@ -92,7 +101,30 @@ async function fetchAdminProfile() {
     .eq('id', user.id)
     .single();
   state.isAdmin = !!(data && data.is_admin);
+  setAdminUI(state.isAdmin);
+  renderAuthButtons();
   return state.isAdmin;
+}
+
+// Povolenie/zablokovanie admin UI prvkov podľa roly
+function setAdminUI(isAdmin) {
+  // Admin controls
+  [elements.newQuiz, elements.saveQuiz, elements.loadQuiz, elements.exportQuiz, elements.addTeam, elements.addRound].forEach(el => {
+    if (el) el.disabled = !isAdmin;
+  });
+  // Team/round inputs
+  if (elements.teamName) elements.teamName.disabled = !isAdmin;
+  if (elements.roundName) elements.roundName.disabled = !isAdmin;
+  // Scoreboard inputs
+  const scoreboard = elements.scoreboardTable;
+  if (scoreboard) {
+    const inputs = scoreboard.querySelectorAll('input');
+    inputs.forEach(inp => { inp.disabled = !isAdmin; });
+  }
+  // Remove buttons
+  document.querySelectorAll('.team-item button, .round-item button').forEach(btn => {
+    btn.disabled = !isAdmin;
+  });
 }
 
 // === ULOŽENIE QUIZU DO SUPABASE ===
@@ -170,11 +202,27 @@ async function saveQuizToSupabase() {
 }
 
 // === NAČÍTANIE QUIZU Z SUPABASE ===
-async function loadQuizFromSupabase(quizId) {
+async function loadQuizFromSupabase() {
   if (mode !== 'supabase') {
     loadQuizFromLocal();
     return;
   }
+  const quizzes = await fetchQuizList();
+  if (!quizzes || quizzes.length === 0) {
+    alert('V databáze nie sú žiadne quizy.');
+    return;
+  }
+  renderQuizDropdown(quizzes, async function(quizId) {
+    if (!quizId || typeof quizId !== 'string') {
+      alert('Neplatný výber.');
+      return;
+    }
+    await loadQuizById(quizId);
+  });
+}
+
+// === Načítanie quizu podľa ID ===
+async function loadQuizById(quizId) {
   // 1. Quiz
   const { data: quiz, error: quizErr } = await supabase
     .from('quizzes')
@@ -215,11 +263,11 @@ async function loadQuizFromSupabase(quizId) {
       state.scores[team.name][round.name] = s ? Number(s.score) : 0;
     });
   });
-  // ...update UI...
   updateTeamsList();
   updateRoundsList();
   updateScoreboard();
   updateLeaderboard();
+  updateQuizStats();
 }
 
 // === FETCH NAJNOVŠIEHO LEADERBOARDU (public) ===
@@ -310,40 +358,346 @@ function validateScore(val) {
   return !isNaN(n) && n >= 0;
 }
 
-// ...ZACHOVAJ OSTATNÉ FUNKCIE UI, updateScore, updateTeamsList, updateRoundsList, updateScoreboard, updateLeaderboard atď. (nezabudni upraviť, aby používali nové state.scores podľa team/round mena, nie indexu)...
-// ...Pridaj jasné komentáre kde treba...
+// === ZÁKLADNÉ FUNKCIE UI ===
+function addTeam() {
+  if (!state.isAdmin) return;
+  const teamsInput = elements.teamName.value.trim();
+  if (!teamsInput) return;
+  const teamNames = teamsInput.split('\n')
+    .map(name => name.trim())
+    .filter(name => name.length > 0);
+  let addedCount = 0;
+  teamNames.forEach(teamName => {
+    if (!state.teams.includes(teamName)) {
+      state.teams.push(teamName);
+      state.scores[teamName] = {};
+      state.rounds.forEach(round => {
+        state.scores[teamName][round.name] = 0;
+      });
+      addedCount++;
+    }
+  });
+  if (addedCount > 0) {
+    elements.teamName.value = '';
+    updateTeamsList();
+    updateScoreboard();
+    updateLeaderboard();
+  }
+}
 
-// === NASTAVENIE REŽIMU ===
-// Ak chceš fallback na localStorage, nastav mode = 'local' vyššie.
-// Ak chceš Supabase, nastav mode = 'supabase' a vlož správne kľúče.
+function addRound() {
+  if (!state.isAdmin) return;
+  const roundName = elements.roundName.value.trim();
+  if (!roundName) return;
+  if (state.rounds.some(r => r.name === roundName)) {
+    alert('Round already exists!');
+    return;
+  }
+  const round = { name: roundName };
+  state.rounds.push(round);
+  state.teams.forEach(team => {
+    state.scores[team][roundName] = 0;
+  });
+  elements.roundName.value = '';
+  updateRoundsList();
+  updateScoreboard();
+  updateLeaderboard();
+}
+
+function updateTeamsList() {
+  elements.teamsList.innerHTML = '';
+  state.teams.forEach(team => {
+    const teamDiv = document.createElement('div');
+    teamDiv.className = 'team-item';
+    teamDiv.innerHTML = `
+      <span>${team}</span>
+      <button onclick="removeTeam('${team}')" class="neon-button">Remove</button>
+    `;
+    elements.teamsList.appendChild(teamDiv);
+  });
+}
+window.removeTeam = function(teamName) {
+  if (!state.isAdmin) return;
+  const index = state.teams.indexOf(teamName);
+  if (index > -1) {
+    state.teams.splice(index, 1);
+    delete state.scores[teamName];
+    updateTeamsList();
+    updateScoreboard();
+    updateLeaderboard();
+  }
+};
+
+function updateRoundsList() {
+  elements.roundsList.innerHTML = '';
+  state.rounds.forEach(round => {
+    const roundDiv = document.createElement('div');
+    roundDiv.className = 'team-item';
+    roundDiv.innerHTML = `
+      <span>${round.name}</span>
+      <button onclick="removeRound('${round.name}')" class="neon-button">Remove</button>
+    `;
+    elements.roundsList.appendChild(roundDiv);
+  });
+}
+window.removeRound = function(roundName) {
+  if (!state.isAdmin) return;
+  const index = state.rounds.findIndex(r => r.name === roundName);
+  if (index > -1) {
+    state.rounds.splice(index, 1);
+    state.teams.forEach(team => {
+      delete state.scores[team][roundName];
+    });
+    updateRoundsList();
+    updateScoreboard();
+    updateLeaderboard();
+  }
+};
+
+function updateScoreboard() {
+  if (state.teams.length === 0 || state.rounds.length === 0) {
+    elements.scoreboardTable.innerHTML = '<p>Add teams and rounds to see the scoreboard</p>';
+    return;
+  }
+  let html = '<table>';
+  html += '<tr><th>Team</th>';
+  state.rounds.forEach(round => {
+    html += `<th>${round.name}</th>`;
+  });
+  html += '<th>Total</th></tr>';
+  state.teams.forEach(team => {
+    html += `<tr><td>${team}</td>`;
+    let total = 0;
+    state.rounds.forEach(round => {
+      const score = state.scores[team][round.name] || 0;
+      total += score;
+      html += `<td><input type="number" class="score-input neon-input" 
+        value="${score}" min="0" step="0.5"
+        onchange="updateScore('${team}', '${round.name}', this.value)"></td>`;
+    });
+    html += `<td>${total}</td></tr>`;
+  });
+  html += '</table>';
+  elements.scoreboardTable.innerHTML = html;
+  updateQuizStats();
+}
+
+window.updateScore = function(team, round, score) {
+  if (!state.isAdmin) return;
+  let parsed = parseFloat(score);
+  if (isNaN(parsed) || parsed < 0) parsed = 0;
+  state.scores[team][round] = parsed;
+  updateScoreboard();
+  updateLeaderboard();
+};
+
+function updateLeaderboard() {
+  const teamScores = state.teams.map(team => {
+    const total = Object.values(state.scores[team] || {}).reduce((sum, score) => sum + score, 0);
+    return { team, total };
+  }).sort((a, b) => b.total - a.total);
+  elements.leaderboardDisplay.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Position</th>
+          <th>Team</th>
+          <th>Total Score</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${teamScores.map((score, index) => `
+          <tr class="${index === 0 ? 'winner' : ''}">
+            <td>${index + 1}</td>
+            <td>${score.team}</td>
+            <td>${score.total}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+  updateQuizStats();
+}
+
+function updateQuizStats() {
+  if (!elements.quizStats) return;
+  const { topScore, easiestRound, hardestRound, bestRound } = elements.quizStats;
+  if (!state.teams.length || !state.rounds.length) {
+    if (topScore) topScore.textContent = '-';
+    if (easiestRound) easiestRound.textContent = '-';
+    if (hardestRound) hardestRound.textContent = '-';
+    if (bestRound) bestRound.textContent = '-';
+    return;
+  }
+  // Top score
+  let maxScore = -Infinity, maxTeam = '';
+  state.teams.forEach(team => {
+    const total = Object.values(state.scores[team] || {}).reduce((a, b) => a + b, 0);
+    if (total > maxScore) {
+      maxScore = total;
+      maxTeam = team;
+    }
+  });
+  if (topScore) topScore.textContent = `${maxTeam} (${maxScore})`;
+  // Easiest/hardest round (najvyšší/priemerný priemer na kolo)
+  let easiest = -Infinity, hardest = Infinity, best = -Infinity;
+  let easiestName = '', hardestName = '', bestName = '';
+  state.rounds.forEach(round => {
+    let sum = 0;
+    state.teams.forEach(team => {
+      sum += state.scores[team][round.name] || 0;
+    });
+    const avg = sum / state.teams.length;
+    if (avg > easiest) {
+      easiest = avg;
+      easiestName = round.name;
+    }
+    if (avg < hardest) {
+      hardest = avg;
+      hardestName = round.name;
+    }
+    if (sum > best) {
+      best = sum;
+      bestName = round.name;
+    }
+  });
+  if (easiestRound) easiestRound.textContent = `${easiestName} (${easiest.toFixed(2)})`;
+  if (hardestRound) hardestRound.textContent = `${hardestName} (${hardest.toFixed(2)})`;
+  if (bestRound) bestRound.textContent = `${bestName} (${best})`;
+}
+
+function switchTab(tab) {
+  state.currentTab = tab;
+  elements.tabButtons.forEach(button => {
+    button.classList.toggle('active', button.dataset.tab === tab);
+  });
+  elements.tabContents.forEach(content => {
+    content.classList.toggle('active', content.id === `${tab}Tab`);
+  });
+  if (tab === 'leaderboard') {
+    updateLeaderboard();
+  }
+}
+
+// === Nový quiz s názvom ===
+async function confirmNewQuiz() {
+  if (!state.isAdmin) return;
+  const title = prompt('Zadaj názov nového kvizu:');
+  if (!title) return;
+  state.teams = [];
+  state.rounds = [];
+  state.scores = {};
+  state.title = title;
+  state.quizId = null;
+  updateTeamsList();
+  updateRoundsList();
+  updateScoreboard();
+  updateLeaderboard();
+  updateQuizStats();
+}
+
+// === Dynamický dropdown na výber quizu ===
+function renderQuizDropdown(quizzes, onSelect, label = 'Vyber quiz:') {
+  let old = document.getElementById('quizDropdown');
+  if (old) old.remove();
+  const container = document.createElement('div');
+  container.id = 'quizDropdown';
+  container.style = 'margin: 24px auto; text-align: center; max-width: 350px; background: #181830; border-radius: 18px; box-shadow: 0 2px 12px #0006; padding: 18px;';
+  const lbl = document.createElement('label');
+  lbl.textContent = label;
+  lbl.style = 'margin-right: 8px; font-weight: bold; font-size: 1.1em; color: #0ff;';
+  container.appendChild(lbl);
+  const select = document.createElement('select');
+  select.style = 'padding: 8px 16px; font-size: 1.1em; border-radius: 12px; border: 1px solid #0ff; background: #222; color: #0ff; margin-right: 12px;';
+  quizzes.forEach(q => {
+    const option = document.createElement('option');
+    option.value = q.id;
+    option.textContent = `${q.title} (${q.created_at?.slice(0,10)})`;
+    select.appendChild(option);
+  });
+  container.appendChild(select);
+  const btn = document.createElement('button');
+  btn.textContent = 'Načítať';
+  btn.className = 'neon-button';
+  btn.style = 'margin-left: 8px;';
+  btn.onclick = () => {
+    onSelect(select.value);
+    container.remove();
+  };
+  container.appendChild(btn);
+  // Umiestni pod Load Quiz tlačidlo
+  const loadQuizBtn = document.getElementById('loadQuiz');
+  if (loadQuizBtn && loadQuizBtn.parentNode) {
+    loadQuizBtn.parentNode.insertAdjacentElement('afterend', container);
+  } else {
+    document.body.prepend(container);
+  }
+}
 
 // Initial load
 (async function initialLoad() {
-  // Najprv načítaj profil admina (ak je potrebné)
+  await supabaseReady;
   await fetchAdminProfile();
-  // Ak je admin prihlásený, prepni na admin tab
-  if (state.isAdmin) {
-    state.currentTab = 'admin';
-    elements.tabButtons.forEach(button => {
-      button.classList.toggle('active', button.dataset.tab === 'admin');
-    });
-    elements.tabContents.forEach(content => {
-      content.classList.toggle('active', content.id === 'adminTab');
-    });
-  }
-  // Potom načítaj quizy pre admina
-  if (mode === 'supabase' && state.isAdmin) {
-    const quizzes = await fetchQuizList();
-    state.quizzes = quizzes;
-    // ...naplň UI pre admina zoznamom quizov...
-  }
-  // Ak nie je admin, načítaj len posledný leaderboard
-  if (mode === 'supabase' && !state.isAdmin) {
-    const leaderboardData = await fetchLatestLeaderboard();
-    if (leaderboardData) {
-      // ...naplň UI len leaderboardom...
-    }
-  }
+  setAdminUI(state.isAdmin);
+  renderAuthButtons(); // <-- pridaj sem, aby sa zobrazilo vždy
 })();
+
+document.addEventListener('DOMContentLoaded', function() {
+  if (elements.addTeam) elements.addTeam.onclick = addTeam;
+  if (elements.addRound) elements.addRound.onclick = addRound;
+  if (elements.newQuiz) elements.newQuiz.onclick = confirmNewQuiz;
+  if (elements.saveQuiz) elements.saveQuiz.onclick = saveQuizToSupabase;
+  if (elements.loadQuiz) elements.loadQuiz.onclick = loadQuizFromSupabase;
+  if (elements.exportQuiz) elements.exportQuiz.onclick = exportQuizData;
+  if (elements.tabButtons) elements.tabButtons.forEach(button => {
+    button.onclick = () => {
+      const tab = button.dataset.tab;
+      switchTab(tab);
+    };
+  });
+  const leaderboardBtn = document.getElementById('leaderboardScrollBtn');
+  if (leaderboardBtn) {
+    leaderboardBtn.onclick = () => {
+      window.open('leaderboard.html', '_blank');
+    };
+  }
+  renderAuthButtons(); // <-- pridaj sem, aby sa zobrazilo vždy
+});
+
+function renderAuthButtons() {
+  let container = document.getElementById('authButtons');
+  if (!container) {
+    // Umiestni do .container ak existuje
+    const parent = document.querySelector('.container') || document.body;
+    container = document.createElement('div');
+    container.id = 'authButtons';
+    container.style = 'margin: 16px 0; text-align: right; position: relative; z-index: 10;';
+    parent.prepend(container);
+  }
+  container.innerHTML = '';
+  if (!state.user) {
+    const signInBtn = document.createElement('button');
+    signInBtn.textContent = 'Sign In (admin)';
+    signInBtn.className = 'neon-button';
+    signInBtn.onclick = async () => {
+      const email = prompt('Zadaj svoj email pre magic link prihlásenie:');
+      if (email) await signInAdmin(email);
+    };
+    container.appendChild(signInBtn);
+  } else {
+    const userSpan = document.createElement('span');
+    userSpan.textContent = state.user.email + (state.isAdmin ? ' (admin)' : '');
+    userSpan.style = 'margin-right: 12px; color: #0ff; font-weight: bold;';
+    container.appendChild(userSpan);
+    const signOutBtn = document.createElement('button');
+    signOutBtn.textContent = 'Sign Out';
+    signOutBtn.className = 'neon-button';
+    signOutBtn.onclick = async () => {
+      await signOutAdmin();
+      location.reload();
+    };
+    container.appendChild(signOutBtn);
+  }
+}
 
 console.log('App.js loaded!');
