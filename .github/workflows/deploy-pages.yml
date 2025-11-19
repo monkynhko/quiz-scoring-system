@@ -42,5 +42,5 @@ jobs:
         with:
           publish_dir: ./site
           publish_branch: gh-pages
-          # token defaults to GITHUB_TOKEN, but can be overridden with a PAT if needed
-          # token: ${{ secrets.GITHUB_TOKEN }}
+          # Provide the GitHub token explicitly so the action can authenticate
+          github_token: ${{ secrets.GITHUB_TOKEN }}
