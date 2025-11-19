@@ -28,9 +28,10 @@ jobs:
 
       - name: Generate config.js from secrets
         run: |
-          cat > site/config.js <<'EOF'
-          window.SUPABASE_URL = ${SUPABASE_URL};
-          window.SUPABASE_ANON_KEY = ${SUPABASE_ANON_KEY};
+          # Use an unquoted heredoc so variables are expanded, and wrap values in quotes
+          cat > site/config.js <<EOF
+          window.SUPABASE_URL = '${SUPABASE_URL}';
+          window.SUPABASE_ANON_KEY = '${SUPABASE_ANON_KEY}';
           EOF
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
