@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8">
+  <title>Quiz Leaderboard</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js"></script>
+  <style>
+    .qr-container { text-align: right; margin-bottom: 1em; }
+    .archive-list { margin-top: 2em; }
+    .position-number { display:inline-block; width:36px; text-align:center; font-weight:700; color:#fff; background:transparent; }
+  </style>
+</head>
+<body>
+  <div style="width:100%; display:flex; flex-direction:column; align-items:center;">
+    <div id="archive-list-container" style="width:100%; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; margin-bottom:24px;">
+      <!-- Dropdown sa vloží sem -->
+    </div>
+    <div id="leaderboard"></div>
+    <div id="fallback" style="color: red; display: none; margin-top:16px;">
+      Nepodarilo sa načítať leaderboard z databázy. Skúšam fallback...
+    </div>
+  </div>
+  <script>
+  (function () {
+    function runApp() {
+    // === SUPABASE KONFIG ===
+    // NOTE: Do not commit real keys. Replace these placeholders with your values
+    // or generate `config.js` from your `.env` using the provided script.
+    // The page will use `window.SUPABASE_URL` / `window.SUPABASE_ANON_KEY` if `config.js` is present.
+    let SUPABASE_URL = '<SUPABASE_URL_PLACEHOLDER>'; // e.g. https://xyz.supabase.co
+    let SUPABASE_ANON_KEY = '<SUPABASE_ANON_KEY_PLACEHOLDER>';
+    // Allow override from generated config.js (which sets window.SUPABASE_URL / window.SUPABASE_ANON_KEY)
+    if (typeof window !== 'undefined' && window.SUPABASE_URL) {
+      SUPABASE_URL = window.SUPABASE_URL;
+    }
+    if (typeof window !== 'undefined' && window.SUPABASE_ANON_KEY) {
+      SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY;
+    }
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // If placeholders are present, show a clear message and skip auto-loading
+    let SKIP_AUTO_LOAD = false;
+    if (String(SUPABASE_URL).includes('<') || String(SUPABASE_ANON_KEY).includes('<')) {
+      const board = document.getElementById('leaderboard');
+      if (board) {
+        board.innerHTML = `
+          <div style="width:75vw; max-width:900px; margin:48px auto; padding:24px; background:#1a1333; color:#fff; border-radius:12px; text-align:center;">
+            <h2 style="margin-bottom:12px;">Konfigurácia chýba</h2>
+            <p style="margin-bottom:8px;">Supabase kľúče nie sú nakonfigurované. Skopírujte ` +
+            `<code>env.example</code> do <code>.env</code> alebo vložte hodnoty do súboru podľa README_SUPABASE.md.</p>
+            <p style="font-size:0.95em; color:#ffd700;">Po nastavení kľúčov obnovte stránku.</p>
+          </div>`;
+      }
+      SKIP_AUTO_LOAD = true;
+    }
+
+    // QR kód odstránený
+
+    // Zisti quizId z URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const quizId = urlParams.get('quizId');
+
+    // === Interaktívny dropdown na výber quizu ===
+    function renderQuizDropdown(quizzes, onSelect, label = 'Vyber quiz:') {
+      const root = document.getElementById('archive-list-container');
+      // create view controls area (league / quiz) if missing
+      let controlsArea = root.querySelector('.view-controls');
+      if (!controlsArea) {
+        controlsArea = document.createElement('div');
+        controlsArea.className = 'view-controls';
+        controlsArea.style = 'display:flex; align-items:center; justify-content:center; width:100%; margin-bottom:12px;';
+        // create a single row matching leaderboard width: toggle centered, dropdown on right
+        const controlsRow = document.createElement('div');
+        controlsRow.className = 'controls-row';
+        // make row centered and relatively positioned so dropdown can be absolutely placed to the right
+        controlsRow.style = 'width:75vw; max-width:900px; display:flex; align-items:center; justify-content:center; margin:12px auto; position:relative;';
+
+        // centered toggle wrapper
+        const toggleWrapper = document.createElement('div');
+        // give padding on the right so absolute-right dropdown won't overlap toggle text
+        toggleWrapper.style = 'flex:1; display:flex; justify-content:center; padding-right:220px;';
+        const toggleBtn = document.createElement('button');
+        function updateToggleText() {
+          toggleBtn.textContent = currentView === 'league' ? 'Zobraziť aktuálny leaderboard' : 'Zobraziť ligové skóre';
+        }
+        updateToggleText();
+        toggleBtn.className = 'neon-button';
+        // make toggle full width of the controlsRow wrapper
+        toggleBtn.style = 'width:100%; padding:12px 18px; font-size:1.05em; border-radius:12px; text-align:center; margin-right:10px;';
+        toggleBtn.onclick = async () => {
+          currentView = currentView === 'league' ? 'quiz' : 'league';
+          updateToggleText();
+          if (currentView === 'league') {
+            await renderLeaderboard();
+          } else {
+            await renderLeaderboard(currentQuizId);
+          }
+        };
+        toggleWrapper.appendChild(toggleBtn);
+
+        // right-side placeholder for dropdown; will be filled below
+        const rightArea = document.createElement('div');
+        rightArea.className = 'controls-right';
+        // absolutely position the dropdown to the right edge of the controlsRow
+        rightArea.style = 'position:absolute; right:0; top:0; display:flex; align-items:center; gap:12px;';
+
+        controlsRow.appendChild(toggleWrapper);
+        controlsRow.appendChild(rightArea);
+        controlsArea.appendChild(controlsRow);
+        root.appendChild(controlsArea);
+      }
+
+      // dropdown area (separate so controlsArea isn't wiped)
+      // find or create dropdown area inside the controls row's right area
+      let dropdownArea = root.querySelector('.controls-right .dropdown-area');
+      if (!dropdownArea) {
+        const rightArea = root.querySelector('.controls-right');
+        dropdownArea = document.createElement('div');
+        dropdownArea.className = 'dropdown-area';
+        dropdownArea.style = 'display:flex; align-items:center; gap:12px;';
+        if (rightArea) rightArea.appendChild(dropdownArea); else root.appendChild(dropdownArea);
+      }
+
+      // clear and recreate dropdown
+      dropdownArea.innerHTML = '';
+      let old = document.getElementById('quizDropdown');
+      if (old) old.remove();
+      const container = document.createElement('div');
+      container.id = 'quizDropdown';
+      container.style = 'display:flex; align-items:center; gap:12px;';
+      const lbl = document.createElement('label');
+      lbl.textContent = 'Kvízy:';
+      lbl.style = 'font-weight:bold; font-size:1.1em; color:#0ff; margin-right:8px;';
+      container.appendChild(lbl);
+      const select = document.createElement('select');
+      select.style = 'padding:8px 16px; font-size:1.1em; border-radius:12px; border:1px solid #0ff; background:#222; color:#0ff; margin-right:12px;';
+      quizzes.forEach(q => {
+        const option = document.createElement('option');
+        option.value = q.id;
+        // show only the quiz title (no created_at timestamp)
+        option.textContent = q.title || (q.created_at?.slice(0,10) || 'Untitled');
+        select.appendChild(option);
+      });
+      // ensure the dropdown shows the currently selected quiz (if any)
+      try {
+        if (currentQuizId) {
+          select.value = currentQuizId;
+        } else if (select.options.length) {
+          // default to the first option
+          select.value = select.options[0].value;
+        }
+      } catch (e) {
+        // ignore if value not present
+      }
+      container.appendChild(select);
+      // automatically show selected quiz when changed (remove explicit "Zobraziť" button)
+      select.addEventListener('change', () => {
+        onSelect(select.value);
+      });
+      dropdownArea.appendChild(container);
+    }
+
+    let currentQuizId = quizId;
+    let currentView = 'quiz'; // 'quiz' or 'league'
+
+    async function renderLeaderboard(quizIdOverride) {
+      let data;
+      try {
+        let idToUse = quizIdOverride || currentQuizId;
+        // If league view selected, fetch aggregated league across quizzes
+        if (currentView === 'league') {
+          const leagueData = await fetchLeague();
+          renderLeagueTable(leagueData);
+          await renderArchive();
+          return;
+        }
+        // Ak nie je quizId, automaticky zober najnovší quiz
+        if (!idToUse) {
+          const { data: quiz } = await supabase
+            .from('quizzes')
+            .select('id, title, created_at')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+          if (!quiz) throw new Error('Žiadny quiz');
+          idToUse = quiz.id;
+        }
+        // Fetch konkrétny quiz
+        const { data: quiz } = await supabase
+          .from('quizzes')
+          .select('id, title, created_at')
+          .eq('id', idToUse)
+          .single();
+        if (!quiz) throw new Error('Quiz nenájdený');
+    data = await fetchLeaderboardForQuiz(quiz.id);
+    // strip trailing parenthetical timestamp from quiz title for display
+    const displayQuizTitle = (quiz.title || '').replace(/\s*\(.*\)$/, '');
+    data.quizTitle = displayQuizTitle;
+  renderTable(data);
+  await renderArchive();
+      } catch (e) {
+        document.getElementById('fallback').style.display = '';
+        // Fallback: načítaj leaderboard.json
+        try {
+          const resp = await fetch('leaderboard.json');
+          if (!resp.ok) throw new Error('Chyba načítania snapshotu');
+          const snapshot = await resp.json();
+          renderTable(snapshot);
+        } catch (e2) {
+          document.getElementById('leaderboard').innerHTML =
+            '<p>Leaderboard nie je dostupný.</p>';
+        }
+      }
+    }
+
+    // --- Helper: normalize team names (remove diacritics + lowercase) ---
+    function normalizeTeamName(name) {
+      if (!name) return '';
+      try {
+        // decompose diacritics and remove combining marks
+        return name.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .trim();
+      } catch (e) {
+        // Fallback simple normalization
+        return name.replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+      }
+    }
+
+    // --- League aggregation: sum points by normalized team name across all quizzes ---
+    async function fetchLeague() {
+      // Fetch all teams and all scores
+      const { data: teams } = await supabase
+        .from('teams')
+        .select('id, name');
+      const { data: scores } = await supabase
+        .from('scores')
+        .select('team_id, score');
+
+      const teamById = {};
+      (teams || []).forEach(t => { teamById[t.id] = (t.name || '').trim(); });
+
+      // Aggregate by normalized name, but keep counts of original spellings
+      const agg = {}; // norm -> { total, appearancesSet, nameCounts, firstSeen }
+      (scores || []).forEach(s => {
+        const teamId = s.team_id;
+        const original = (teamById[teamId] || 'Unknown').trim();
+        const norm = normalizeTeamName(original) || original.toLowerCase();
+        if (!agg[norm]) agg[norm] = { total: 0, appearancesSet: new Set(), nameCounts: {}, firstSeen: original };
+        const scoreVal = Number(s.score) || 0;
+        agg[norm].total += scoreVal;
+        agg[norm].appearancesSet.add(teamId);
+        agg[norm].nameCounts[original] = (agg[norm].nameCounts[original] || 0) + 1;
+      });
+
+      const league = Object.keys(agg).map(norm => {
+        const entry = agg[norm];
+        // pick the most common original spelling for display
+        const names = Object.keys(entry.nameCounts);
+        names.sort((a, b) => entry.nameCounts[b] - entry.nameCounts[a]);
+        const displayName = names[0] || entry.firstSeen || norm;
+        return { team: displayName, total: entry.total, appearances: entry.appearancesSet.size };
+      }).sort((a, b) => b.total - a.total);
+
+      return { league };
+    }
+
+    function renderLeagueTable(data) {
+      const list = (data && data.league) || [];
+      if (!list.length) {
+        document.getElementById('leaderboard').innerHTML = '<p>Žiadne ligové dáta.</p>';
+        return;
+      }
+      let html = `<div class="leaderboard-modern single-col">
+        <div class="leaderboard-header">Liga - Súčet bodov</div>
+        <div class="leaderboard-col" style="width:75vw; max-width:900px; margin:0 auto;">
+          <div class="leaderboard-row leaderboard-row-header">
+            <div class="leaderboard-cell">&nbsp;</div>
+            <div class="leaderboard-cell">Tím</div>
+            <div class='leaderboard-cell'>Účasti</div>
+            <div class='leaderboard-cell'>Súčet</div>
+          </div>`;
+      list.forEach((row, i) => {
+        html += `<div class="leaderboard-row${i < 3 ? ' leaderboard-top' : ''}">
+          <div class="leaderboard-cell">${i < 3 ? ['🥇','🥈','🥉'][i] : '<span class="position-number">'+(i+1)+'</span>'}</div>
+          <div class="leaderboard-cell">${row.team}</div>
+          <div class='leaderboard-cell'>${row.appearances}</div>
+          <div class='leaderboard-cell total-score-cell'><b>${row.total}</b></div>
+        </div>`;
+      });
+      html += '</div></div>';
+      document.getElementById('leaderboard').innerHTML = html;
+    }
+
+    async function fetchLeaderboardForQuiz(quizId) {
+      const { data: teams, error: teamsError } = await supabase
+        .from('teams')
+        .select('id, name')
+        .eq('quiz_id', quizId);
+      const { data: rounds, error: roundsError } = await supabase
+        .from('rounds')
+        .select('id, name, round_order')
+        .eq('quiz_id', quizId)
+        .order('round_order');
+      const { data: scores, error: scoresError } = await supabase
+        .from('scores')
+        .select('team_id, round_id, score');
+      // Debug panel odstránený
+      // Spočítaj total per team
+      // Výpočet leaderboardu a štatistík
+      const leaderboard = (teams || []).map(team => {
+        let total = 0;
+        let roundScores = [];
+        (rounds || []).forEach(round => {
+          const s = (scores || []).find(
+            sc => sc.team_id === team.id && sc.round_id === round.id
+          );
+          const score = s ? Number(s.score) : 0;
+          total += score;
+          roundScores.push(score);
+        });
+        return { team: team.name, teamId: team.id, total, roundScores };
+      });
+      leaderboard.sort((a, b) => b.total - a.total);
+
+      // Štatistiky
+      let stats = {
+        topScore: { team: '', score: 0 },
+        easiestRound: { round: '', avgScore: 0 },
+        hardestRound: { round: '', avgScore: Infinity },
+        bestRound: { team: '', round: '', score: 0 }
+      };
+      (rounds || []).forEach(round => {
+        let roundTotal = 0;
+        (teams || []).forEach(team => {
+          const s = (scores || []).find(
+            sc => sc.team_id === team.id && sc.round_id === round.id
+          );
+          const score = s ? Number(s.score) : 0;
+          roundTotal += score;
+          if (score > stats.bestRound.score) {
+            stats.bestRound = { team: team.name, round: round.name, score };
+          }
+        });
+        const avgScore = roundTotal / (teams?.length || 1);
+        if (avgScore > stats.easiestRound.avgScore) {
+          stats.easiestRound = { round: round.name, avgScore };
+        }
+        if (avgScore < stats.hardestRound.avgScore) {
+          stats.hardestRound = { round: round.name, avgScore };
+        }
+      });
+      leaderboard.forEach(row => {
+        if (row.total > stats.topScore.score) {
+          stats.topScore = { team: row.team, score: row.total };
+        }
+      });
+      return { leaderboard, rounds, stats };
+    }
+
+    function renderTable(data) {
+      function escapeHtml(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      }
+      const quizTitle = (data && data.quizTitle) || '';
+      if (!data || !data.leaderboard) {
+        document.getElementById('leaderboard').innerHTML = '<p>Žiadne dáta.</p>';
+        return;
+      }
+      // Medaily SVG s farbami
+      const medals = [
+        '<span class="medal gold" style="color:#FFD700;" title="1. miesto">🥇</span>',
+        '<span class="medal silver" style="color:#C0C0C0;" title="2. miesto">🥈</span>',
+        '<span class="medal bronze" style="color:#CD7F32;" title="3. miesto">🥉</span>'
+      ];
+      const trophy = '<span class="trophy" title="Trofej">🏆</span>';
+      const playerIcon = '<span class="player-icon">&#128100;</span>';
+      // Dynamické stĺpce pre kolá
+      let html = `<div class="leaderboard-modern single-col">
+        <div class="leaderboard-header">Leaderboard${quizTitle ? ' - ' + escapeHtml(quizTitle) : ''}</div>
+        <div class="leaderboard-col" style="width:75vw; max-width:900px; margin:0 auto;">
+          <div class="leaderboard-row leaderboard-row-header">
+            <div class="leaderboard-cell">&nbsp;</div>
+            <div class="leaderboard-cell">Tím</div>
+            
+            ${(data.rounds||[]).map((r, idx) => `<div class='leaderboard-cell round-score-header'>${idx+1}. kolo</div>`).join('')}
+             <div class='leaderboard-cell total-score-header'>Súčet</div>
+          </div>`;
+      data.leaderboard.forEach((row, i) => {
+        html += `<div class="leaderboard-row${i < 3 ? ' leaderboard-top' : ''}">
+          <div class="leaderboard-cell">${i < 3 ? medals[i] : '<span class="position-number">'+(i+1)+'</span>'}</div>
+          <div class="leaderboard-cell">${row.team}</div>
+          
+          ${(row.roundScores||[]).map(score => `<div class='leaderboard-cell round-score-cell'>${score}</div>`).join('')}
+           <div class='leaderboard-cell total-score-cell'><b>${row.total}</b></div>
+        </div>`;
+      });
+      html += '</div></div>';
+      document.getElementById('leaderboard').innerHTML = html;
+    }
+
+    function renderStatistics(data) {
+      if (!data || !data.stats) return;
+      document.getElementById('topScore').textContent = `${data.stats.topScore.team} (${data.stats.topScore.score} bodov)`;
+      document.getElementById('easiestRound').textContent = `${data.stats.easiestRound.round} (${Math.round(data.stats.easiestRound.avgScore)} bodov priemer)`;
+      document.getElementById('hardestRound').textContent = `${data.stats.hardestRound.round} (${Math.round(data.stats.hardestRound.avgScore)} bodov priemer)`;
+      document.getElementById('bestRound').textContent = `${data.stats.bestRound.team} (${data.stats.bestRound.round}: ${data.stats.bestRound.score} bodov)`;
+    }
+
+    async function renderArchive() {
+      const { data: quizzes } = await supabase
+        .from('quizzes')
+        .select('id, title, created_at')
+        .order('created_at', { ascending: false })
+        .limit(20);
+      renderQuizDropdown(quizzes || [], async (quizId) => {
+        currentQuizId = quizId;
+        await renderLeaderboard(quizId);
+      }, 'Kvízy:');
+    }
+
+    if (!SKIP_AUTO_LOAD) renderLeaderboard();
+    }
+
+    // Loader: ensure config.js is loaded if it exists, then run the app
+    if (typeof window !== 'undefined' && window.SUPABASE_URL && window.SUPABASE_ANON_KEY) {
+      // config already present
+      runApp();
+    } else {
+      // try to load config.js dynamically; if it fails, show actionable message
+      const loader = document.createElement('script');
+      loader.src = 'config.js';
+      loader.onload = function () {
+        try { runApp(); } catch (e) { console.error('Error running app after loading config.js', e); }
+      };
+      loader.onerror = function () {
+        console.error('config.js not found or failed to load. Check GitHub Actions deployment and repository secrets.');
+        const board = document.getElementById('leaderboard');
+        if (board) {
+          board.innerHTML = `
+            <div style="width:75vw; max-width:900px; margin:48px auto; padding:24px; background:#3a1f2f; color:#fff; border-radius:12px; text-align:left;">
+              <h2 style="margin-bottom:12px;">Konfigurácia chýba (deploy)</h2>
+              <p>Deployed site is missing <code>config.js</code>. The GitHub Pages deploy should generate it from repository secrets.</p>
+              <ol>
+                <li>Confirm secrets are set in <strong>Settings → Secrets and variables → Actions</strong>.</li>
+                <li>Check <strong>Actions</strong> tab for the latest workflow run and inspect the <em>Generate config.js</em> step for errors.</li>
+                <li>Re-run the workflow or push a new commit to trigger deploy.</li>
+              </ol>
+              <p style="color:#ffd700">If you see this message locally, run <code>node make-config.js</code> to create <code>config.js</code>.</p>
+            </div>`;
+        }
+      };
+      document.head.appendChild(loader);
+    }
+  })();
+  </script>
+</body>
+</html>
