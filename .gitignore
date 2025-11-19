@@ -1,0 +1,8 @@
+.env
+node_modules/
+.DS_Store
+dist/
+# local editor files
+.vscode/
+.idea/
+config.js

@@ -5,6 +5,8 @@
   <title>Quiz Leaderboard</title>
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js"></script>
+  <!-- Optional generated config; may 404 if not generated (harmless) -->
+  <script src="config.js"></script>
   <style>
     .qr-container { text-align: right; margin-bottom: 1em; }
     .archive-list { margin-top: 2em; }
@@ -23,9 +25,35 @@
   </div>
   <script>
     // === SUPABASE KONFIG ===
-    const SUPABASE_URL = 'https://rpkipyfafkdndcaoedtq.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJwa2lweWZhZmtkbmRjYW9lZHRxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkxNzU5MDUsImV4cCI6MjA3NDc1MTkwNX0.qYsJffts9lkaUIdCDRM_4Yj9EP0-3yCAgNj8SMMH_VY';
+    // NOTE: Do not commit real keys. Replace these placeholders with your values
+    // or generate `config.js` from your `.env` using the provided script.
+    // The page will use `window.SUPABASE_URL` / `window.SUPABASE_ANON_KEY` if `config.js` is present.
+    let SUPABASE_URL = '<SUPABASE_URL_PLACEHOLDER>'; // e.g. https://xyz.supabase.co
+    let SUPABASE_ANON_KEY = '<SUPABASE_ANON_KEY_PLACEHOLDER>';
+    // Allow override from generated config.js (which sets window.SUPABASE_URL / window.SUPABASE_ANON_KEY)
+    if (typeof window !== 'undefined' && window.SUPABASE_URL) {
+      SUPABASE_URL = window.SUPABASE_URL;
+    }
+    if (typeof window !== 'undefined' && window.SUPABASE_ANON_KEY) {
+      SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY;
+    }
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // If placeholders are present, show a clear message and skip auto-loading
+    let SKIP_AUTO_LOAD = false;
+    if (String(SUPABASE_URL).includes('<') || String(SUPABASE_ANON_KEY).includes('<')) {
+      const board = document.getElementById('leaderboard');
+      if (board) {
+        board.innerHTML = `
+          <div style="width:75vw; max-width:900px; margin:48px auto; padding:24px; background:#1a1333; color:#fff; border-radius:12px; text-align:center;">
+            <h2 style="margin-bottom:12px;">Konfigurácia chýba</h2>
+            <p style="margin-bottom:8px;">Supabase kľúče nie sú nakonfigurované. Skopírujte ` +
+            `<code>env.example</code> do <code>.env</code> alebo vložte hodnoty do súboru podľa README_SUPABASE.md.</p>
+            <p style="font-size:0.95em; color:#ffd700;">Po nastavení kľúčov obnovte stránku.</p>
+          </div>`;
+      }
+      SKIP_AUTO_LOAD = true;
+    }
 
     // QR kód odstránený
 
@@ -392,7 +420,7 @@
       }, 'Kvízy:');
     }
 
-    renderLeaderboard();
+    if (!SKIP_AUTO_LOAD) renderLeaderboard();
   </script>
 </body>
 </html>

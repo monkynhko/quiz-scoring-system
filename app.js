@@ -2,8 +2,12 @@
 
 // === KONFIGURÁCIA SUPABASE ===
 // Vlož svoje údaje z projektu Supabase (viď README_SUPABASE.md)
-const SUPABASE_URL = 'https://rpkipyfafkdndcaoedtq.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJwa2lweWZhZmtkbmRjYW9lZHRxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkxNzU5MDUsImV4cCI6MjA3NDc1MTkwNX0.qYsJffts9lkaUIdCDRM_4Yj9EP0-3yCAgNj8SMMH_VY';
+// WARNING: Do NOT commit real keys. Use `.env` / hosting environment variables.
+let SUPABASE_URL = '<SUPABASE_URL_PLACEHOLDER>'; // e.g. https://xyz.supabase.co
+let SUPABASE_ANON_KEY = '<SUPABASE_ANON_KEY_PLACEHOLDER>';
+// Allow override from generated config.js (window.SUPABASE_URL / window.SUPABASE_ANON_KEY)
+if (typeof window !== 'undefined' && window.SUPABASE_URL) SUPABASE_URL = window.SUPABASE_URL;
+if (typeof window !== 'undefined' && window.SUPABASE_ANON_KEY) SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY;
 
 // Prepínač režimu: 'supabase' alebo 'local'
 let mode = 'supabase'; // Zmeň na 'local' ak chceš použiť localStorage fallback

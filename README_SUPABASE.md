@@ -26,9 +26,18 @@
   ```
   (user-id získaš z tabulky `auth.users`)
 
-## 5. Nastav kľúče v app.js a leaderboard.html
+## 5. Nastav kľúče (bezpečne)
 
-- Vlož `SUPABASE_URL` a `SUPABASE_ANON_KEY` do oboch súborov na označené miesta.
+- Namiesto commitovania skutočných kľúčov do repozitára, používajte miestny `.env` súbor alebo environment variables v hostingu.
+- Pridajte súbor `.env` (necommitovať) so zmennými:
+
+```env
+SUPABASE_URL=https://<project>.supabase.co
+SUPABASE_ANON_KEY=<your_anon_key>
+```
+
+- Pre zdieľanie repozitára: nechajte v `app.js` a `leaderboard.html` placeholdery (napr. `<SUPABASE_ANON_KEY_PLACEHOLDER>`) alebo načítajte hodnoty pri build-e.
+- Pred zverejnením repozitára: vždy skontrolujte, že `service_role` key nie je nikde v commitoch ani v súboroch.
 
 ## 6. Deployment na GitHub Pages
 
