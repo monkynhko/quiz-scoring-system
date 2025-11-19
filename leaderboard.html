@@ -12,7 +12,7 @@
 </head>
 <body>
   <div style="width:100%; display:flex; flex-direction:column; align-items:center;">
-    <div id="archive-list-container" style="width:100%; display:flex; justify-content:flex-start; align-items:center; margin-bottom:24px;">
+    <div id="archive-list-container" style="width:100%; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; margin-bottom:24px;">
       <!-- Dropdown sa vloží sem -->
     </div>
     <div id="leaderboard"></div>
@@ -34,11 +34,68 @@
 
     // === Interaktívny dropdown na výber quizu ===
     function renderQuizDropdown(quizzes, onSelect, label = 'Vyber quiz:') {
+      const root = document.getElementById('archive-list-container');
+      // create view controls area (league / quiz) if missing
+      let controlsArea = root.querySelector('.view-controls');
+      if (!controlsArea) {
+        controlsArea = document.createElement('div');
+        controlsArea.className = 'view-controls';
+        controlsArea.style = 'display:flex; align-items:center; justify-content:center; width:100%; margin-bottom:12px;';
+        // create a single row matching leaderboard width: toggle centered, dropdown on right
+        const controlsRow = document.createElement('div');
+        controlsRow.className = 'controls-row';
+        controlsRow.style = 'width:75vw; max-width:900px; display:flex; align-items:center; justify-content:space-between; margin:12px auto;';
+
+        // centered toggle wrapper
+        const toggleWrapper = document.createElement('div');
+        toggleWrapper.style = 'flex:1; display:flex; justify-content:center; padding-right:12px;';
+        const toggleBtn = document.createElement('button');
+        function updateToggleText() {
+          toggleBtn.textContent = currentView === 'league' ? 'Zobraziť aktuálny leaderboard' : 'Zobraziť ligové skóre';
+        }
+        updateToggleText();
+        toggleBtn.className = 'neon-button';
+        toggleBtn.style = 'width:100%; max-width:600px; padding:12px 18px; font-size:1.05em; border-radius:12px; text-align:center;';
+        toggleBtn.onclick = async () => {
+          currentView = currentView === 'league' ? 'quiz' : 'league';
+          updateToggleText();
+          if (currentView === 'league') {
+            await renderLeaderboard();
+          } else {
+            await renderLeaderboard(currentQuizId);
+          }
+        };
+        toggleWrapper.appendChild(toggleBtn);
+
+        // right-side placeholder for dropdown; will be filled below
+        const rightArea = document.createElement('div');
+        rightArea.className = 'controls-right';
+        rightArea.style = 'display:flex; align-items:center; gap:12px;';
+
+        controlsRow.appendChild(toggleWrapper);
+        controlsRow.appendChild(rightArea);
+        controlsArea.appendChild(controlsRow);
+        root.appendChild(controlsArea);
+      }
+
+      // dropdown area (separate so controlsArea isn't wiped)
+      // find or create dropdown area inside the controls row's right area
+      let dropdownArea = root.querySelector('.controls-right .dropdown-area');
+      if (!dropdownArea) {
+        const rightArea = root.querySelector('.controls-right');
+        dropdownArea = document.createElement('div');
+        dropdownArea.className = 'dropdown-area';
+        dropdownArea.style = 'display:flex; align-items:center; gap:12px;';
+        if (rightArea) rightArea.appendChild(dropdownArea); else root.appendChild(dropdownArea);
+      }
+
+      // clear and recreate dropdown
+      dropdownArea.innerHTML = '';
       let old = document.getElementById('quizDropdown');
       if (old) old.remove();
       const container = document.createElement('div');
       container.id = 'quizDropdown';
-      container.style = 'display:flex; align-items:center; gap:12px; margin-left:24px;';
+      container.style = 'display:flex; align-items:center; gap:12px;';
       const lbl = document.createElement('label');
       lbl.textContent = 'Kvízy:';
       lbl.style = 'font-weight:bold; font-size:1.1em; color:#0ff; margin-right:8px;';
@@ -60,16 +117,23 @@
         onSelect(select.value);
       };
       container.appendChild(btn);
-      document.getElementById('archive-list-container').innerHTML = '';
-      document.getElementById('archive-list-container').appendChild(container);
+      dropdownArea.appendChild(container);
     }
 
     let currentQuizId = quizId;
+    let currentView = 'quiz'; // 'quiz' or 'league'
 
     async function renderLeaderboard(quizIdOverride) {
       let data;
       try {
         let idToUse = quizIdOverride || currentQuizId;
+        // If league view selected, fetch aggregated league across quizzes
+        if (currentView === 'league') {
+          const leagueData = await fetchLeague();
+          renderLeagueTable(leagueData);
+          await renderArchive();
+          return;
+        }
         // Ak nie je quizId, automaticky zober najnovší quiz
         if (!idToUse) {
           const { data: quiz } = await supabase
@@ -88,7 +152,7 @@
           .eq('id', idToUse)
           .single();
         if (!quiz) throw new Error('Quiz nenájdený');
-  data = await fetchLeaderboardForQuiz(quiz.id);
+    data = await fetchLeaderboardForQuiz(quiz.id);
   renderTable(data);
   await renderArchive();
       } catch (e) {
@@ -104,6 +168,85 @@
             '<p>Leaderboard nie je dostupný.</p>';
         }
       }
+    }
+
+    // --- Helper: normalize team names (remove diacritics + lowercase) ---
+    function normalizeTeamName(name) {
+      if (!name) return '';
+      try {
+        // decompose diacritics and remove combining marks
+        return name.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .trim();
+      } catch (e) {
+        // Fallback simple normalization
+        return name.replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+      }
+    }
+
+    // --- League aggregation: sum points by normalized team name across all quizzes ---
+    async function fetchLeague() {
+      // Fetch all teams and all scores
+      const { data: teams } = await supabase
+        .from('teams')
+        .select('id, name');
+      const { data: scores } = await supabase
+        .from('scores')
+        .select('team_id, score');
+
+      const teamById = {};
+      (teams || []).forEach(t => { teamById[t.id] = (t.name || '').trim(); });
+
+      // Aggregate by normalized name, but keep counts of original spellings
+      const agg = {}; // norm -> { total, appearancesSet, nameCounts, firstSeen }
+      (scores || []).forEach(s => {
+        const teamId = s.team_id;
+        const original = (teamById[teamId] || 'Unknown').trim();
+        const norm = normalizeTeamName(original) || original.toLowerCase();
+        if (!agg[norm]) agg[norm] = { total: 0, appearancesSet: new Set(), nameCounts: {}, firstSeen: original };
+        const scoreVal = Number(s.score) || 0;
+        agg[norm].total += scoreVal;
+        agg[norm].appearancesSet.add(teamId);
+        agg[norm].nameCounts[original] = (agg[norm].nameCounts[original] || 0) + 1;
+      });
+
+      const league = Object.keys(agg).map(norm => {
+        const entry = agg[norm];
+        // pick the most common original spelling for display
+        const names = Object.keys(entry.nameCounts);
+        names.sort((a, b) => entry.nameCounts[b] - entry.nameCounts[a]);
+        const displayName = names[0] || entry.firstSeen || norm;
+        return { team: displayName, total: entry.total, appearances: entry.appearancesSet.size };
+      }).sort((a, b) => b.total - a.total);
+
+      return { league };
+    }
+
+    function renderLeagueTable(data) {
+      const list = (data && data.league) || [];
+      if (!list.length) {
+        document.getElementById('leaderboard').innerHTML = '<p>Žiadne ligové dáta.</p>';
+        return;
+      }
+      let html = `<div class="leaderboard-modern single-col">
+        <div class="leaderboard-header">Liga - Súčet bodov</div>
+        <div class="leaderboard-col" style="width:75vw; max-width:900px; margin:0 auto;">
+          <div class="leaderboard-row leaderboard-row-header">
+            <div class="leaderboard-cell">&nbsp;</div>
+            <div class="leaderboard-cell">Tím</div>
+            <div class='leaderboard-cell'>Účasti</div>
+            <div class='leaderboard-cell'>Súčet</div>
+          </div>`;
+      list.forEach((row, i) => {
+        html += `<div class="leaderboard-row${i < 3 ? ' leaderboard-top' : ''}">
+          <div class="leaderboard-cell">${i < 3 ? ['🥇','🥈','🥉'][i] : ''}</div>
+          <div class="leaderboard-cell">${row.team}</div>
+          <div class='leaderboard-cell'>${row.appearances}</div>
+          <div class='leaderboard-cell total-score-cell'><b>${row.total}</b></div>
+        </div>`;
+      });
+      html += '</div></div>';
+      document.getElementById('leaderboard').innerHTML = html;
     }
 
     async function fetchLeaderboardForQuiz(quizId) {
