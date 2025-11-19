@@ -8,6 +8,7 @@
   <style>
     .qr-container { text-align: right; margin-bottom: 1em; }
     .archive-list { margin-top: 2em; }
+    .position-number { display:inline-block; width:36px; text-align:center; font-weight:700; color:#fff; background:transparent; }
   </style>
 </head>
 <body>
@@ -44,18 +45,21 @@
         // create a single row matching leaderboard width: toggle centered, dropdown on right
         const controlsRow = document.createElement('div');
         controlsRow.className = 'controls-row';
-        controlsRow.style = 'width:75vw; max-width:900px; display:flex; align-items:center; justify-content:space-between; margin:12px auto;';
+        // make row centered and relatively positioned so dropdown can be absolutely placed to the right
+        controlsRow.style = 'width:75vw; max-width:900px; display:flex; align-items:center; justify-content:center; margin:12px auto; position:relative;';
 
         // centered toggle wrapper
         const toggleWrapper = document.createElement('div');
-        toggleWrapper.style = 'flex:1; display:flex; justify-content:center; padding-right:12px;';
+        // give padding on the right so absolute-right dropdown won't overlap toggle text
+        toggleWrapper.style = 'flex:1; display:flex; justify-content:center; padding-right:220px;';
         const toggleBtn = document.createElement('button');
         function updateToggleText() {
           toggleBtn.textContent = currentView === 'league' ? 'Zobraziť aktuálny leaderboard' : 'Zobraziť ligové skóre';
         }
         updateToggleText();
         toggleBtn.className = 'neon-button';
-        toggleBtn.style = 'width:100%; max-width:600px; padding:12px 18px; font-size:1.05em; border-radius:12px; text-align:center;';
+        // make toggle full width of the controlsRow wrapper
+        toggleBtn.style = 'width:100%; padding:12px 18px; font-size:1.05em; border-radius:12px; text-align:center;';
         toggleBtn.onclick = async () => {
           currentView = currentView === 'league' ? 'quiz' : 'league';
           updateToggleText();
@@ -70,7 +74,8 @@
         // right-side placeholder for dropdown; will be filled below
         const rightArea = document.createElement('div');
         rightArea.className = 'controls-right';
-        rightArea.style = 'display:flex; align-items:center; gap:12px;';
+        // absolutely position the dropdown to the right edge of the controlsRow
+        rightArea.style = 'position:absolute; right:0; top:0; display:flex; align-items:center; gap:12px;';
 
         controlsRow.appendChild(toggleWrapper);
         controlsRow.appendChild(rightArea);
@@ -105,18 +110,26 @@
       quizzes.forEach(q => {
         const option = document.createElement('option');
         option.value = q.id;
-        option.textContent = `${q.title} (${q.created_at?.slice(0,10)})`;
+        // show only the quiz title (no created_at timestamp)
+        option.textContent = q.title || (q.created_at?.slice(0,10) || 'Untitled');
         select.appendChild(option);
       });
+      // ensure the dropdown shows the currently selected quiz (if any)
+      try {
+        if (currentQuizId) {
+          select.value = currentQuizId;
+        } else if (select.options.length) {
+          // default to the first option
+          select.value = select.options[0].value;
+        }
+      } catch (e) {
+        // ignore if value not present
+      }
       container.appendChild(select);
-      const btn = document.createElement('button');
-      btn.textContent = 'Zobraziť';
-      btn.className = 'neon-button';
-      btn.style = 'margin-left:8px;';
-      btn.onclick = () => {
+      // automatically show selected quiz when changed (remove explicit "Zobraziť" button)
+      select.addEventListener('change', () => {
         onSelect(select.value);
-      };
-      container.appendChild(btn);
+      });
       dropdownArea.appendChild(container);
     }
 
@@ -153,6 +166,9 @@
           .single();
         if (!quiz) throw new Error('Quiz nenájdený');
     data = await fetchLeaderboardForQuiz(quiz.id);
+    // strip trailing parenthetical timestamp from quiz title for display
+    const displayQuizTitle = (quiz.title || '').replace(/\s*\(.*\)$/, '');
+    data.quizTitle = displayQuizTitle;
   renderTable(data);
   await renderArchive();
       } catch (e) {
@@ -239,7 +255,7 @@
           </div>`;
       list.forEach((row, i) => {
         html += `<div class="leaderboard-row${i < 3 ? ' leaderboard-top' : ''}">
-          <div class="leaderboard-cell">${i < 3 ? ['🥇','🥈','🥉'][i] : ''}</div>
+          <div class="leaderboard-cell">${i < 3 ? ['🥇','🥈','🥉'][i] : '<span class="position-number">'+(i+1)+'</span>'}</div>
           <div class="leaderboard-cell">${row.team}</div>
           <div class='leaderboard-cell'>${row.appearances}</div>
           <div class='leaderboard-cell total-score-cell'><b>${row.total}</b></div>
@@ -316,6 +332,10 @@
     }
 
     function renderTable(data) {
+      function escapeHtml(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      }
+      const quizTitle = (data && data.quizTitle) || '';
       if (!data || !data.leaderboard) {
         document.getElementById('leaderboard').innerHTML = '<p>Žiadne dáta.</p>';
         return;
@@ -330,7 +350,7 @@
       const playerIcon = '<span class="player-icon">&#128100;</span>';
       // Dynamické stĺpce pre kolá
       let html = `<div class="leaderboard-modern single-col">
-        <div class="leaderboard-header">Leaderboard</div>
+        <div class="leaderboard-header">Leaderboard${quizTitle ? ' - ' + escapeHtml(quizTitle) : ''}</div>
         <div class="leaderboard-col" style="width:75vw; max-width:900px; margin:0 auto;">
           <div class="leaderboard-row leaderboard-row-header">
             <div class="leaderboard-cell">&nbsp;</div>
@@ -341,7 +361,7 @@
           </div>`;
       data.leaderboard.forEach((row, i) => {
         html += `<div class="leaderboard-row${i < 3 ? ' leaderboard-top' : ''}">
-          <div class="leaderboard-cell">${i < 3 ? medals[i] : ''}</div>
+          <div class="leaderboard-cell">${i < 3 ? medals[i] : '<span class="position-number">'+(i+1)+'</span>'}</div>
           <div class="leaderboard-cell">${row.team}</div>
           
           ${(row.roundScores||[]).map(score => `<div class='leaderboard-cell round-score-cell'>${score}</div>`).join('')}
