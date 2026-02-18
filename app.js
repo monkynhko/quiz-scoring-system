@@ -9,8 +9,11 @@ let SUPABASE_ANON_KEY = '<SUPABASE_ANON_KEY_PLACEHOLDER>';
 if (typeof window !== 'undefined' && window.SUPABASE_URL) SUPABASE_URL = window.SUPABASE_URL;
 if (typeof window !== 'undefined' && window.SUPABASE_ANON_KEY) SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY;
 
-// Prepínač režimu: 'supabase' alebo 'local'
-let mode = 'supabase'; // Zmeň na 'local' ak chceš použiť localStorage fallback
+// If placeholders are still present, prefer local fallback to avoid runtime errors
+const _MISSING_SUPABASE_CONFIG = String(SUPABASE_URL).includes('<') || String(SUPABASE_ANON_KEY).includes('<');
+
+// Prepínač režimu: 'supabase' alebo 'local'. If config missing, default to 'local'.
+let mode = _MISSING_SUPABASE_CONFIG ? 'local' : 'supabase'; // Zmeň na 'local' ak chceš použiť localStorage fallback
 
 // === SUPABASE KLIENT (CDN UMD) ===
 let supabase = null;
@@ -31,6 +34,92 @@ if (mode === 'supabase') {
     supabaseReady = Promise.resolve();
   }
 }
+
+// Listen for auth events (magic link redirects) so the page reacts after redirect
+supabaseReady = supabaseReady.then(async () => {
+  try {
+    if (mode === 'supabase' && supabase && supabase.auth && typeof supabase.auth.onAuthStateChange === 'function') {
+      supabase.auth.onAuthStateChange((event, session) => {
+        // When user signs in via magic link, re-fetch profile and update UI
+        if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+          fetchAdminProfile().catch(err => console.error('fetchAdminProfile failed', err));
+          // Clean URL from tokens/params for nicer UX
+          try {
+            const hasHashToken = window.location.hash && (window.location.hash.includes('access_token') || window.location.hash.includes('refresh_token'));
+            const hasSearchToken = window.location.search && (window.location.search.includes('access_token') || window.location.search.includes('refresh_token'));
+            if (hasHashToken || hasSearchToken) {
+              // Remove auth tokens from URL without reloading
+              const cleanPath = window.location.pathname + (window.location.search ? window.location.search.replace(/(access_token=[^&]*&?|refresh_token=[^&]*&?)/g, '').replace(/\?&|&&/g, '?').replace(/\?$/, '') : '');
+              history.replaceState(null, document.title, cleanPath);
+              window.location.hash = '';
+            }
+          } catch (e) { /* ignore */ }
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('Error setting up auth listener', e);
+  }
+});
+
+// If the redirect returned tokens in the URL (magic link), try to set the session manually
+supabaseReady = supabaseReady.then(async () => {
+  try {
+    if (mode !== 'supabase' || !supabase || !supabase.auth) return;
+    const parseTokensFrom = (src) => {
+      if (!src) return null;
+      const parts = src.replace(/^#/, '').replace(/^\?/, '').split('&');
+      const obj = {};
+      parts.forEach(p => {
+        const [k, v] = p.split('=');
+        if (k && v) obj[decodeURIComponent(k)] = decodeURIComponent(v);
+      });
+      return obj;
+    };
+
+    const hash = window.location.hash;
+    const search = window.location.search;
+    const fromHash = parseTokensFrom(hash);
+    const fromSearch = parseTokensFrom(search);
+    const tokens = Object.assign({}, fromSearch || {}, fromHash || {});
+    if (tokens.access_token || tokens.refresh_token) {
+      // tokens detected — attempting to set session
+      try {
+        // supabase.auth.setSession expects { access_token, refresh_token }
+        await supabase.auth.setSession({
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token
+        });
+      } catch (e) {
+        console.warn('setSession failed, attempting fallback setAuth', e);
+        try {
+          if (tokens.access_token && typeof supabase.auth.setAuth === 'function') {
+            supabase.auth.setAuth(tokens.access_token);
+          }
+        } catch (e2) {
+          console.error('Fallback auth set failed', e2);
+        }
+      }
+
+      // Fetch profile now that session is set
+      try {
+        await fetchAdminProfile();
+      } catch (e) {
+        console.warn('fetchAdminProfile after setSession failed', e);
+      }
+
+      // Clean URL so tokens aren't visible
+      try {
+        const cleanUrl = window.location.origin + window.location.pathname + window.location.search.replace(/(access_token=[^&]*&?|refresh_token=[^&]*&?)/g, '').replace(/\?&|&&/g, '?').replace(/\?$/, '') + window.location.hash.replace(/(#.*access_token=[^&]*&?|#.*refresh_token=[^&]*&?)/g, '');
+        history.replaceState(null, document.title, cleanUrl);
+      } catch (e) {
+        // best-effort
+      }
+    }
+  } catch (e) {
+    console.warn('Error parsing/setting session from URL', e);
+  }
+});
 
 // === STAV A DOM ===
 const state = {
@@ -69,15 +158,29 @@ const elements = {
 
 // === AUTENTIFIKÁCIA ADMINA ===
 async function signInAdmin(email) {
-  if (mode !== 'supabase') return;
-  const { error } = await supabase.auth.signInWithOtp({ email });
-  if (error) {
-    alert('Chyba pri prihlasovaní: ' + error.message);
+  console.log('signInAdmin() called; mode=', mode);
+  if (mode !== 'supabase') {
+    alert('Supabase nie je nakonfigurovaný v tejto inštancii. Skontroluj, či máš vygenerovaný `config.js` alebo nastav `window.SUPABASE_URL` a `window.SUPABASE_ANON_KEY`.');
     return false;
   }
-  alert('Skontroluj svoj email a klikni na magic link. Po kliknutí sa stránka automaticky obnoví.');
-  setTimeout(() => location.reload(), 1000); // reload po návrate z magic linku
-  return true;
+
+    try {
+      // prefer explicit redirect so magic link returns to the current origin
+      const redirectTo = window.location.origin + window.location.pathname;
+      const res = await supabase.auth.signInWithOtp({ email }, { redirectTo });
+      if (res.error) {
+        alert('Chyba pri prihlasovaní: ' + res.error.message);
+        return false;
+      }
+      alert('Skontroluj svoj email a klikni na magic link. Po kliknutí sa stránka automaticky obnoví.');
+      // in case the browser returns immediately, reload to trigger auth listener
+      setTimeout(() => location.reload(), 1000);
+      return true;
+    } catch (e) {
+      console.error('signInAdmin unexpected error', e);
+      alert('Neočakovaná chyba pri požiadavke magic link: ' + (e.message || e));
+      return false;
+    }
 }
 
 async function signOutAdmin() {
@@ -203,6 +306,25 @@ async function saveQuizToSupabase() {
     }
   }
   alert('Quiz uložený do Supabase!');
+}
+
+// === EXPORT QUIZ DATA (simple client-side download) ===
+function exportQuizData() {
+  try {
+    const filename = (state.title ? state.title.replace(/[^a-z0-9_\-]/gi, '_') : 'quiz') + '_export.json';
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    console.error('Export failed', e);
+    alert('Export failed: ' + e.message);
+  }
 }
 
 // === NAČÍTANIE QUIZU Z SUPABASE ===
@@ -671,11 +793,16 @@ document.addEventListener('DOMContentLoaded', function() {
 function renderAuthButtons() {
   let container = document.getElementById('authButtons');
   if (!container) {
-    // Umiestni do .container ak existuje
+    // Ensure DOM is ready: if no parent yet, schedule render after DOMContentLoaded
     const parent = document.querySelector('.container') || document.body;
+    if (!parent) {
+      document.addEventListener('DOMContentLoaded', renderAuthButtons);
+      return;
+    }
     container = document.createElement('div');
     container.id = 'authButtons';
-    container.style = 'margin: 16px 0; text-align: right; position: relative; z-index: 10;';
+    // high z-index to avoid being covered and clear right alignment
+    container.style = 'margin: 16px 0; text-align: right; position: relative; z-index: 9999;';
     parent.prepend(container);
   }
   container.innerHTML = '';
