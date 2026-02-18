@@ -9,6 +9,39 @@
     .qr-container { text-align: right; margin-bottom: 1em; }
     .archive-list { margin-top: 2em; }
     .position-number { display:inline-block; width:36px; text-align:center; font-weight:700; color:#fff; background:transparent; }
+    /* TV mode styles (16:9 projector target) - neon purple theme */
+    :root { --tv-top-height: 28vh; --tv-gap: 10px; --neon:#b16cff; --neon-2:#7a3cff; }
+    body.tv-mode { margin:0; background: linear-gradient(180deg,#0b0210,#140218); font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, 'Helvetica Neue', Arial; color: #fff; }
+    .tv-wrapper { box-sizing: border-box; width:100vw; height:100vh; padding:12px; display:flex; flex-direction:column; gap:var(--tv-gap); }
+    /* Top 3 row */
+    .tv-top-row { display:flex; gap:var(--tv-gap); height:var(--tv-top-height); }
+    .tv-top { flex:1; display:flex; flex-direction:row; align-items:center; justify-content:space-between; border-radius:12px; padding:12px 18px; color:#fff; box-shadow:0 6px 30px rgba(138,43,226,0.12); }
+    .tv-top--gold { background: linear-gradient(180deg, rgba(177,108,255,0.12), rgba(122,60,255,0.06)); border: 1px solid rgba(177,108,255,0.18); }
+    .tv-top--silver { background: linear-gradient(180deg, rgba(122,60,255,0.08), rgba(122,60,255,0.02)); border: 1px solid rgba(122,60,255,0.12); }
+    .tv-top--bronze { background: linear-gradient(180deg, rgba(122,60,255,0.06), rgba(177,108,255,0.02)); border: 1px solid rgba(122,60,255,0.10); }
+    .tv-top .tv-rank-badge { font-weight:900; color:#111; background:var(--neon); padding:8px 12px; border-radius:10px; font-size:1.4rem; box-shadow:0 6px 18px rgba(177,108,255,0.18); margin-right:12px; }
+    .tv-top .tv-team { font-weight:900; font-size:calc(2.0vh + 2.0vw); text-align:center; color:#fff; text-shadow:none; flex:1; }
+    .tv-top .tv-score { font-size:calc(4.0vh + 3.0vw); font-weight:900; color:var(--neon); margin-left:12px; text-align:right; text-shadow:0 2px 12px rgba(177,108,255,0.12); }
+
+    /* Grid for remaining teams (4 cols x 7 rows = 28) */
+    .tv-grid { display:grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: calc((100vh - var(--tv-top-height) - 48px) / 7); gap:var(--tv-gap); flex:1; }
+    .tv-tile { display:flex; flex-direction:row; align-items:center; justify-content:space-between; padding:12px 16px; border-radius:8px; background: linear-gradient(180deg, rgba(28,8,36,0.95), rgba(12,4,20,0.92)); border:1px solid rgba(255,255,255,0.04); color:#fff; box-shadow: 0 6px 22px rgba(40,10,80,0.18); overflow:hidden; position:relative; }
+    .tv-tile .tv-team { font-weight:800; font-size:calc(1.6vh + 1.0vw); line-height:1.05; white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; text-align:center; flex:1; color:#fff; padding:0 12px; }
+    .tv-tile .tv-score { font-size:calc(2.2vh + 1.6vw); font-weight:900; color:var(--neon); text-shadow:0 2px 10px rgba(177,108,255,0.08); margin-left:8px; min-width:4ch; text-align:right; }
+    .tv-rank-badge { font-weight:900; color:#111; background:var(--neon); padding:6px 10px; border-radius:8px; font-size:1rem; box-shadow:0 4px 12px rgba(122,60,255,0.12); min-width:2.5ch; text-align:center; }
+
+    /* Make columns 2 and 4 slightly lighter purple for better row contrast
+       Keep team name and score colors unchanged as requested */
+    .tv-grid .tv-tile:nth-child(4n+2),
+    .tv-grid .tv-tile:nth-child(4n) {
+      background: linear-gradient(180deg, rgba(80,36,120,0.92), rgba(40,18,80,0.90));
+      border-color: rgba(220,180,255,0.06);
+    }
+
+    /* Minimal UI for TV mode: hide controls */
+    body.tv-mode .view-controls, body.tv-mode .controls-row, body.tv-mode #archive-list-container { display:none !important; }
+    body.tv-mode #leaderboard { width:100vw; max-width:none; margin:0; }
+    body.tv-mode.hide-cursor { cursor:none; }
   </style>
 </head>
 <body>
@@ -23,7 +56,7 @@
   </div>
   <script>
   (function () {
-    function runApp() {
+    async function runApp() {
     // === SUPABASE KONFIG ===
     // NOTE: Do not commit real keys. Replace these placeholders with your values
     // or generate `config.js` from your `.env` using the provided script.
@@ -122,9 +155,8 @@
         if (rightArea) rightArea.appendChild(dropdownArea); else root.appendChild(dropdownArea);
       }
 
-      // clear and recreate dropdown
-      dropdownArea.innerHTML = '';
-      let old = document.getElementById('quizDropdown');
+      // remove only the quiz dropdown (preserve season dropdown if present)
+      let old = dropdownArea.querySelector('#quizDropdown');
       if (old) old.remove();
       const container = document.createElement('div');
       container.id = 'quizDropdown';
@@ -163,6 +195,54 @@
 
     let currentQuizId = quizId;
     let currentView = 'quiz'; // 'quiz' or 'league'
+    // Season state: will hold the currently selected season id
+    let currentSeasonId = null;
+
+    // Render a seasons dropdown next to the quiz dropdown
+    function renderSeasonDropdown(seasons, onSelect) {
+      const root = document.getElementById('archive-list-container');
+      let dropdownArea = root.querySelector('.controls-right .dropdown-area');
+      if (!dropdownArea) {
+        const rightArea = root.querySelector('.controls-right');
+        dropdownArea = document.createElement('div');
+        dropdownArea.className = 'dropdown-area';
+        dropdownArea.style = 'display:flex; align-items:center; gap:12px;';
+        if (rightArea) rightArea.appendChild(dropdownArea); else root.appendChild(dropdownArea);
+      }
+
+      // create or replace season dropdown
+      let old = document.getElementById('seasonDropdown');
+      if (old) old.remove();
+      const container = document.createElement('div');
+      container.id = 'seasonDropdown';
+      container.style = 'display:flex; align-items:center; gap:8px;';
+      const lbl = document.createElement('label');
+      lbl.textContent = 'Sezóna:';
+      lbl.style = 'font-weight:bold; font-size:1.1em; color:#0ff; margin-right:8px;';
+      container.appendChild(lbl);
+      const select = document.createElement('select');
+      select.id = 'seasonSelect';
+      select.style = 'padding:8px 12px; font-size:1.05em; border-radius:10px; border:1px solid #0ff; background:#222; color:#0ff;';
+      (seasons || []).forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = s.name || (s.id || 'Unknown');
+        if (s.is_active) opt.dataset.active = '1';
+        select.appendChild(opt);
+      });
+      // try to set current selection
+      try { if (currentSeasonId) select.value = currentSeasonId; else {
+        const activeOpt = select.querySelector('option[data-active="1"]');
+        if (activeOpt) select.value = activeOpt.value; else if (select.options.length) select.value = select.options[0].value;
+      }} catch (e) {}
+      select.addEventListener('change', async () => {
+        currentSeasonId = select.value;
+        if (typeof onSelect === 'function') await onSelect(select.value);
+      });
+      container.appendChild(select);
+      // place season dropdown to the left of quiz dropdown by prepending
+      dropdownArea.insertBefore(container, dropdownArea.firstChild || null);
+    }
 
     async function renderLeaderboard(quizIdOverride) {
       let data;
@@ -228,15 +308,36 @@
       }
     }
 
-    // --- League aggregation: sum points by normalized team name across all quizzes ---
+    // --- League aggregation: sum points by normalized team name across quizzes in the current season ---
     async function fetchLeague() {
-      // Fetch all teams and all scores
+      // determine quizzes that belong to the selected season
+      let { data: seasonQuizzes } = await supabase
+        .from('quizzes')
+        .select('id')
+        .order('created_at', { ascending: false });
+      if (currentSeasonId) {
+        const res = await supabase.from('quizzes').select('id').eq('season_id', currentSeasonId);
+        seasonQuizzes = res.data;
+      }
+      const quizIds = (seasonQuizzes || []).map(q => q.id).filter(Boolean);
+      if (!quizIds.length) return { league: [] };
+
+      // fetch teams that appeared in these quizzes
       const { data: teams } = await supabase
         .from('teams')
-        .select('id, name');
-      const { data: scores } = await supabase
+        .select('id, name')
+        .in('quiz_id', quizIds);
+
+      // fetch rounds for those quizzes, then scores for those rounds
+      const { data: rounds } = await supabase
+        .from('rounds')
+        .select('id, quiz_id')
+        .in('quiz_id', quizIds);
+      const roundIds = (rounds || []).map(r => r.id).filter(Boolean);
+      const { data: scores } = roundIds.length ? await supabase
         .from('scores')
-        .select('team_id, score');
+        .select('team_id, score, round_id')
+        .in('round_id', roundIds) : { data: [] };
 
       const teamById = {};
       (teams || []).forEach(t => { teamById[t.id] = (t.name || '').trim(); });
@@ -408,19 +509,208 @@
       document.getElementById('bestRound').textContent = `${data.stats.bestRound.team} (${data.stats.bestRound.round}: ${data.stats.bestRound.score} bodov)`;
     }
 
+    // Initialize seasons: fetch and set active season, render season dropdown
+    async function initSeasons() {
+      const { data: seasons } = await supabase
+        .from('seasons')
+        .select('id, name, is_active')
+        .order('name', { ascending: true });
+      if (seasons && seasons.length) {
+        const active = seasons.find(s => s.is_active) || seasons[0];
+        currentSeasonId = active && active.id ? active.id : null;
+      }
+      renderSeasonDropdown(seasons || [], async (seasonId) => {
+        // When season changes: refresh quizzes and the current view
+        currentSeasonId = seasonId;
+        await renderArchive();
+        // If in league view, refresh it
+        if (currentView === 'league') {
+          const leagueData = await fetchLeague();
+          renderLeagueTable(leagueData);
+        } else {
+          // pick first quiz of new season (if available) and render
+          const qsel = document.querySelector('#quizDropdown select');
+          if (qsel && qsel.options.length) {
+            currentQuizId = qsel.options[0].value;
+            await renderLeaderboard(currentQuizId);
+          } else {
+            await renderLeaderboard();
+          }
+        }
+      });
+    }
+
     async function renderArchive() {
-      const { data: quizzes } = await supabase
+      // fetch quizzes for the currently selected season (or none)
+      let q = supabase
         .from('quizzes')
         .select('id, title, created_at')
         .order('created_at', { ascending: false })
         .limit(20);
+      if (currentSeasonId) q = q.eq('season_id', currentSeasonId);
+      const { data: quizzes } = await q;
       renderQuizDropdown(quizzes || [], async (quizId) => {
         currentQuizId = quizId;
         await renderLeaderboard(quizId);
       }, 'Kvízy:');
     }
 
-    if (!SKIP_AUTO_LOAD) renderLeaderboard();
+    if (!SKIP_AUTO_LOAD) {
+      await initSeasons();
+      await renderArchive();
+      await renderLeaderboard();
+    }
+
+    // --------------------------
+    // TV Mode (Fullscreen) - 16:9 projector target
+    // - Grid 4 cols x 8 rows by default (4x8 = 32 tiles)
+    // - Auto-refresh: polling every 5s (safe fallback if Realtime not configured)
+    // - Trigger: ?tv=1 or #tv
+    // --------------------------
+    let tvInterval = null;
+    const TV_POLL_INTERVAL = 5000;
+    const TOP_COUNT = 3;
+    const GRID_COLS = 4;
+    const GRID_ROWS = 7;
+    const GRID_COUNT = GRID_COLS * GRID_ROWS; // 28
+    const MAX_TILES = TOP_COUNT + GRID_COUNT; // 31
+
+    function renderTVTiles(entries) {
+      entries = entries || [];
+      const top = entries.slice(0, TOP_COUNT);
+      const rest = entries.slice(TOP_COUNT, TOP_COUNT + GRID_COUNT);
+      // pad rest to GRID_COUNT
+      const paddedRest = rest.slice();
+      while (paddedRest.length < GRID_COUNT) paddedRest.push({ team: '', total: '' });
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'tv-wrapper';
+
+      // Top row
+      const topRow = document.createElement('div');
+      topRow.className = 'tv-top-row';
+      for (let i = 0; i < TOP_COUNT; i++) {
+        const entry = top[i] || { team: '', total: '' };
+        const tile = document.createElement('div');
+        tile.className = 'tv-top ' + (i === 0 ? 'tv-top--gold' : (i === 1 ? 'tv-top--silver' : 'tv-top--bronze'));
+        const rank = document.createElement('div');
+        rank.className = 'tv-rank-badge';
+        rank.textContent = (i === 0 ? '1' : (i === 1 ? '2' : '3'));
+        const team = document.createElement('div');
+        team.className = 'tv-team';
+        team.textContent = entry.team || '';
+        const score = document.createElement('div');
+        score.className = 'tv-score';
+        score.textContent = (typeof entry.total === 'number' && entry.total !== 0) ? String(entry.total) : (entry.total || '');
+        tile.appendChild(rank);
+        tile.appendChild(team);
+        tile.appendChild(score);
+        topRow.appendChild(tile);
+      }
+      wrapper.appendChild(topRow);
+
+      // Grid of remaining teams
+      const grid = document.createElement('div');
+      grid.className = 'tv-grid';
+      paddedRest.forEach((e, idx) => {
+        const tile = document.createElement('div');
+        tile.className = 'tv-tile';
+        const globalRank = TOP_COUNT + idx + 1; // 4..31
+        const rankEl = document.createElement('div');
+        rankEl.className = 'tv-rank-badge';
+        rankEl.textContent = String(globalRank);
+        const team = document.createElement('div');
+        team.className = 'tv-team';
+        team.textContent = e.team || '';
+        const score = document.createElement('div');
+        score.className = 'tv-score';
+        score.textContent = (typeof e.total === 'number' && e.total !== 0) ? String(e.total) : (e.total || '');
+        tile.appendChild(rankEl);
+        tile.appendChild(team);
+        tile.appendChild(score);
+        grid.appendChild(tile);
+      });
+      wrapper.appendChild(grid);
+
+      const lb = document.getElementById('leaderboard');
+      if (lb) {
+        lb.innerHTML = '';
+        lb.appendChild(wrapper);
+      }
+    }
+
+    async function fetchAndRenderTV() {
+      try {
+        if (currentView === 'league') {
+          const data = await fetchLeague();
+          const entries = (data && data.league) || [];
+          renderTVTiles(entries.map(x => ({ team: x.team, total: x.total })).slice(0, MAX_TILES));
+        } else {
+          if (!currentQuizId) {
+            const { data: quiz } = await supabase
+              .from('quizzes')
+              .select('id')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single();
+            if (quiz) currentQuizId = quiz.id;
+          }
+          const result = await fetchLeaderboardForQuiz(currentQuizId);
+          const entries = (result && result.leaderboard) || [];
+          renderTVTiles(entries.map(r => ({ team: r.team, total: r.total })).slice(0, MAX_TILES));
+        }
+      } catch (err) {
+        console.error('TV fetch error', err);
+      }
+    }
+
+    function startTVAutoRefresh() {
+      if (tvInterval) clearInterval(tvInterval);
+      tvInterval = setInterval(fetchAndRenderTV, TV_POLL_INTERVAL);
+    }
+
+    function stopTVAutoRefresh() {
+      if (tvInterval) { clearInterval(tvInterval); tvInterval = null; }
+    }
+
+    async function enterTVMode() {
+      try {
+        document.body.classList.add('tv-mode');
+        // request fullscreen if available
+        if (document.documentElement.requestFullscreen) {
+          try { await document.documentElement.requestFullscreen(); } catch (e) { /* ignore */ }
+        }
+        await fetchAndRenderTV();
+        startTVAutoRefresh();
+        // hide cursor after 3s of inactivity
+        let mouseTimer;
+        function resetCursorTimer() {
+          document.body.classList.remove('hide-cursor');
+          if (mouseTimer) clearTimeout(mouseTimer);
+          mouseTimer = setTimeout(() => document.body.classList.add('hide-cursor'), 3000);
+        }
+        document.addEventListener('mousemove', resetCursorTimer);
+        resetCursorTimer();
+      } catch (e) {
+        console.error('Failed to enter TV mode', e);
+      }
+    }
+
+    async function exitTVMode() {
+      stopTVAutoRefresh();
+      document.body.classList.remove('tv-mode');
+      document.body.classList.remove('hide-cursor');
+      try { if (document.exitFullscreen) await document.exitFullscreen(); } catch (e) { /* ignore */ }
+      if (!SKIP_AUTO_LOAD) renderLeaderboard();
+    }
+
+    // Auto-enter TV mode if ?tv=1 or #tv present
+    try {
+      const p = new URLSearchParams(window.location.search || '');
+      if (p.get('tv') === '1' || window.location.hash === '#tv') {
+        setTimeout(() => enterTVMode(), 60);
+      }
+    } catch (e) { /* ignore */ }
     }
 
     // Loader: ensure config.js is loaded if it exists, then run the app
