@@ -247,9 +247,11 @@ async function saveQuizToSupabase() {
   // 1. Vytvor quiz
   let quizId = state.quizId;
   if (!quizId) {
+    const insertPayload = { title: state.title || 'Quiz' };
+    if (state.seasonId) insertPayload.season_id = state.seasonId;
     const { data: quiz, error: quizErr } = await supabase
       .from('quizzes')
-      .insert([{ title: state.title || 'Quiz' }])
+      .insert([insertPayload])
       .select('id')
       .single();
     if (quizErr) {
@@ -352,7 +354,7 @@ async function loadQuizById(quizId) {
   // 1. Quiz
   const { data: quiz, error: quizErr } = await supabase
     .from('quizzes')
-    .select('id, title')
+    .select('id, title, season_id')
     .eq('id', quizId)
     .single();
   if (quizErr) {
@@ -361,6 +363,7 @@ async function loadQuizById(quizId) {
   }
   state.quizId = quiz.id;
   state.title = quiz.title;
+  state.seasonId = quiz.season_id || null;
   // 2. Teams
   const { data: teams } = await supabase
     .from('teams')
@@ -450,10 +453,24 @@ async function fetchQuizList() {
   if (mode !== 'supabase') return [];
   const { data: quizzes } = await supabase
     .from('quizzes')
-    .select('id, title, created_at')
+    .select('id, title, created_at, season_id')
     .order('created_at', { ascending: false })
     .limit(20);
   return quizzes || [];
+}
+
+// Fetch seasons list (for assigning a new quiz to a season)
+async function fetchSeasons() {
+  if (mode !== 'supabase') return [];
+  const { data, error } = await supabase
+    .from('seasons')
+    .select('id, name, is_active')
+    .order('name', { ascending: true });
+  if (error) {
+    console.warn('fetchSeasons error', error);
+    return [];
+  }
+  return data || [];
 }
 
 // === FALLBACK LOCALSTORAGE ===
@@ -708,18 +725,46 @@ function switchTab(tab) {
 // === Nový quiz s názvom ===
 async function confirmNewQuiz() {
   if (!state.isAdmin) return;
-  const title = prompt('Zadaj názov nového kvizu:');
-  if (!title) return;
-  state.teams = [];
-  state.rounds = [];
-  state.scores = {};
-  state.title = title;
-  state.quizId = null;
-  updateTeamsList();
-  updateRoundsList();
-  updateScoreboard();
-  updateLeaderboard();
-  updateQuizStats();
+  // Show a small modal with title input and season select
+  const seasons = await fetchSeasons();
+  const overlay = document.createElement('div');
+  overlay.style = 'position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:9999;';
+  const box = document.createElement('div');
+  box.style = 'background:#111; color:#fff; padding:20px; border-radius:12px; min-width:320px; max-width:90%;';
+  box.innerHTML = `
+    <h3 style="margin-top:0">Nový kvíz</h3>
+    <div style="margin-bottom:8px;"><label style="font-weight:bold">Názov:</label><br><input id="newQuizTitle" style="width:100%; padding:8px; margin-top:6px; border-radius:8px; border:1px solid #333;" /></div>
+    <div style="margin-bottom:12px;"><label style="font-weight:bold">Sezóna:</label><br><select id="newQuizSeason" style="width:100%; padding:8px; margin-top:6px; border-radius:8px; border:1px solid #333;"></select></div>
+    <div style="text-align:right; display:flex; gap:8px; justify-content:flex-end;"><button id="cancelNewQuiz" class="neon-button">Zrušiť</button><button id="createNewQuizBtn" class="neon-button">Vytvoriť</button></div>
+  `;
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  const select = box.querySelector('#newQuizSeason');
+  // populate seasons
+  const placeholderOpt = document.createElement('option'); placeholderOpt.value = ''; placeholderOpt.text = '-- žiadna --'; select.appendChild(placeholderOpt);
+  seasons.forEach(s => {
+    const opt = document.createElement('option'); opt.value = s.id; opt.text = s.name || s.id; if (s.is_active) opt.selected = true; select.appendChild(opt);
+  });
+  const titleInput = box.querySelector('#newQuizTitle');
+  titleInput.focus();
+  box.querySelector('#cancelNewQuiz').onclick = () => { overlay.remove(); };
+  box.querySelector('#createNewQuizBtn').onclick = () => {
+    const title = titleInput.value.trim();
+    if (!title) { alert('Zadaj názov.'); return; }
+    const seasonId = select.value || null;
+    state.teams = [];
+    state.rounds = [];
+    state.scores = {};
+    state.title = title;
+    state.seasonId = seasonId;
+    state.quizId = null;
+    overlay.remove();
+    updateTeamsList();
+    updateRoundsList();
+    updateScoreboard();
+    updateLeaderboard();
+    updateQuizStats();
+  };
 }
 
 // === Dynamický dropdown na výber quizu ===
