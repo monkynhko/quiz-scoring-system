@@ -520,10 +520,14 @@
 
     // Initialize seasons: fetch and set active season, render season dropdown
     async function initSeasons() {
-      const { data: seasons } = await supabase
+      const resp = await supabase
         .from('seasons')
         .select('id, name, is_active')
         .order('name', { ascending: true });
+      const seasons = resp.data;
+      const seasonsError = resp.error;
+      console.log('initSeasons response', resp);
+      if (seasonsError) console.warn('initSeasons error', seasonsError);
       if (seasons && seasons.length) {
         const active = seasons.find(s => s.is_active) || seasons[0];
         currentSeasonId = active && active.id ? active.id : null;
