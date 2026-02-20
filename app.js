@@ -596,9 +596,14 @@ function updateRoundsList() {
   state.rounds.forEach(round => {
     const roundDiv = document.createElement('div');
     roundDiv.className = 'team-item';
+    const safeName = round.name.replace(/'/g, "\\'");
     roundDiv.innerHTML = `
       <span>${round.name}</span>
-      <button onclick="removeRound('${round.name}')" class="neon-button">Remove</button>
+      <div style="display:inline-flex; gap:6px;">
+        <button onclick="moveRound('${safeName}', -1)" class="neon-button">↑</button>
+        <button onclick="moveRound('${safeName}', 1)" class="neon-button">↓</button>
+        <button onclick="removeRound('${safeName}')" class="neon-button">Remove</button>
+      </div>
     `;
     elements.roundsList.appendChild(roundDiv);
   });
@@ -615,6 +620,19 @@ window.removeRound = function(roundName) {
     updateScoreboard();
     updateLeaderboard();
   }
+};
+
+// Move round up/down
+window.moveRound = function(roundName, dir) {
+  if (!state.isAdmin) return;
+  const idx = state.rounds.findIndex(r => r.name === roundName);
+  if (idx === -1) return;
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= state.rounds.length) return;
+  const [r] = state.rounds.splice(idx, 1);
+  state.rounds.splice(newIdx, 0, r);
+  updateRoundsList();
+  updateScoreboard();
 };
 
 function updateScoreboard() {
@@ -685,8 +703,20 @@ async function saveSingleScore(teamName, roundName, value) {
 
 // Called on input onblur — update local state already done by updateScore; trigger save if liveSync enabled
 window.handleScoreBlur = async function(team, round, val) {
-  if (state.liveSync && mode === 'supabase' && state.quizId) {
-    await saveSingleScore(team, round, val);
+  if (state.liveSync && mode === 'supabase') {
+    // If quiz isn't persisted yet, create it (teams/rounds) so we can save scores
+    if (!state.quizId) {
+      if (!state.isAdmin) {
+        console.warn('Cannot auto-save: not admin and quiz not saved');
+        return;
+      }
+      try {
+        await saveQuizToSupabase();
+      } catch (e) { console.warn('Auto-create quiz failed', e); return; }
+    }
+    if (state.quizId) {
+      await saveSingleScore(team, round, val);
+    }
   }
 };
 
@@ -893,6 +923,33 @@ document.addEventListener('DOMContentLoaded', function() {
   if (elements.liveSyncToggle) elements.liveSyncToggle.onchange = (e) => {
     state.liveSync = !!e.target.checked;
   };
+  // create floating exit-focus button visible while in focus-mode (header hidden)
+  let exitBtn = document.getElementById('exitFocusBtn');
+  if (!exitBtn) {
+    exitBtn = document.createElement('button');
+    exitBtn.id = 'exitFocusBtn';
+    exitBtn.textContent = 'Exit Focus';
+    exitBtn.style = 'position:fixed; bottom:12px; right:12px; z-index:99999; display:none; padding:10px 14px; border-radius:8px;';
+    document.body.appendChild(exitBtn);
+  }
+  exitBtn.onclick = () => {
+    state.focusMode = false;
+    document.body.classList.remove('focus-mode');
+    if (elements.focusModeToggle) elements.focusModeToggle.textContent = 'Focus Mode';
+    exitBtn.style.display = 'none';
+  };
+  // show/hide exit button according to focus mode toggle
+  const origFocusToggle = elements.focusModeToggle;
+  if (origFocusToggle) {
+    const originalHandler = origFocusToggle.onclick;
+    origFocusToggle.onclick = () => {
+      state.focusMode = !state.focusMode;
+      document.body.classList.toggle('focus-mode', state.focusMode);
+      origFocusToggle.textContent = state.focusMode ? 'Exit Focus' : 'Focus Mode';
+      exitBtn.style.display = state.focusMode ? 'block' : 'none';
+      if (typeof originalHandler === 'function') originalHandler();
+    };
+  }
   if (elements.tabButtons) elements.tabButtons.forEach(button => {
     button.onclick = () => {
       const tab = button.dataset.tab;

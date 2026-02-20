@@ -494,15 +494,27 @@
             <div class="leaderboard-cell">&nbsp;</div>
             <div class="leaderboard-cell">Tím</div>
             
-            ${(data.rounds||[]).map((r, idx) => `<div class='leaderboard-cell round-score-header'>${idx+1}. kolo</div>`).join('')}
+            <!-- Aggregate topics into 5 displayed rounds (topics 1-2 => round1, 3-4 => round2, ...) -->
+            ${(new Array(5)).fill(0).map((_, g) => `<div class='leaderboard-cell round-score-header'>${g*2+1}-${g*2+2}. kolo</div>`).join('')}
              <div class='leaderboard-cell total-score-header'>Súčet</div>
           </div>`;
+      // Helper: aggregate topic scores into 5 grouped rounds
+      function aggregateToFive(scores) {
+        const out = [];
+        for (let g = 0; g < 5; g++) {
+          const a = scores[g*2] || 0;
+          const b = scores[g*2 + 1] || 0;
+          out.push(a + b);
+        }
+        return out;
+      }
+
       data.leaderboard.forEach((row, i) => {
         html += `<div class="leaderboard-row${i < 3 ? ' leaderboard-top' : ''}">
           <div class="leaderboard-cell">${i < 3 ? medals[i] : '<span class="position-number">'+(i+1)+'</span>'}</div>
           <div class="leaderboard-cell">${row.team}</div>
           
-          ${(row.roundScores||[]).map(score => `<div class='leaderboard-cell round-score-cell'>${score}</div>`).join('')}
+          ${(aggregateToFive(row.roundScores||[])).map(score => `<div class='leaderboard-cell round-score-cell'>${score}</div>`).join('')}
            <div class='leaderboard-cell total-score-cell'><b>${row.total}</b></div>
         </div>`;
       });
