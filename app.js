@@ -133,6 +133,12 @@ const state = {
   currentTab: 'scoring'
 };
 
+// runtime flags and caches
+state.liveSync = false;
+state.focusMode = false;
+state._teamIdByName = {};
+state._roundIdByName = {};
+
 const elements = {
   teamName: document.getElementById('teamName'),
   addTeam: document.getElementById('addTeam'),
@@ -146,6 +152,8 @@ const elements = {
   saveQuiz: document.getElementById('saveQuiz'),
   loadQuiz: document.getElementById('loadQuiz'),
   exportQuiz: document.getElementById('exportQuiz'),
+  focusModeToggle: document.getElementById('focusModeToggle'),
+  liveSyncToggle: document.getElementById('liveSyncToggle'),
   tabButtons: document.querySelectorAll('.tab-button'),
   tabContents: document.querySelectorAll('.tab-content'),
   quizStats: {
@@ -307,6 +315,13 @@ async function saveQuizToSupabase() {
       return;
     }
   }
+  // populate id caches for live sync
+  state._teamIdByName = {};
+  (teams || []).forEach(t => { state._teamIdByName[t.name] = t.id; });
+  state._roundIdByName = {};
+  (rounds || []).forEach(r => { state._roundIdByName[r.name] = r.id; });
+  // close setup accordions after quiz starts
+  try { document.getElementById('teamsDetails').open = false; document.getElementById('roundsDetails').open = false; } catch (e) {}
   alert('Quiz uložený do Supabase!');
 }
 
@@ -370,6 +385,9 @@ async function loadQuizById(quizId) {
     .select('id, name')
     .eq('quiz_id', quizId);
   state.teams = teams.map(t => t.name);
+  // cache team ids
+  state._teamIdByName = {};
+  (teams || []).forEach(t => { state._teamIdByName[t.name] = t.id; });
   // 3. Rounds
   const { data: rounds } = await supabase
     .from('rounds')
@@ -377,6 +395,8 @@ async function loadQuizById(quizId) {
     .eq('quiz_id', quizId)
     .order('round_order');
   state.rounds = rounds.map(r => ({ name: r.name }));
+  state._roundIdByName = {};
+  (rounds || []).forEach(r => { state._roundIdByName[r.name] = r.id; });
   // 4. Scores
   const { data: scores } = await supabase
     .from('scores')
@@ -602,28 +622,73 @@ function updateScoreboard() {
     elements.scoreboardTable.innerHTML = '<p>Add teams and rounds to see the scoreboard</p>';
     return;
   }
-  let html = '<table>';
-  html += '<tr><th>Team</th>';
-  state.rounds.forEach(round => {
-    html += `<th>${round.name}</th>`;
+  const MAX_TOPICS = 10;
+  const rounds = state.rounds.slice(0, MAX_TOPICS);
+  // pad with empty topics if less than MAX_TOPICS
+  while (rounds.length < MAX_TOPICS) rounds.push({ name: '' });
+  let html = '<table class="scoreboard-table">';
+  html += '<thead><tr>';
+  html += '<th class="first-col">Team</th>';
+  rounds.forEach((round, idx) => {
+    html += `<th>${idx+1}. ${round.name || ''}</th>`;
   });
-  html += '<th>Total</th></tr>';
+  html += '<th>Total</th></tr></thead><tbody>';
   state.teams.forEach(team => {
-    html += `<tr><td>${team}</td>`;
+    html += `<tr><td class="first-col">${team}</td>`;
     let total = 0;
-    state.rounds.forEach(round => {
-      const score = state.scores[team][round.name] || 0;
-      total += score;
-      html += `<td><input type="number" class="score-input neon-input" 
-        value="${score}" min="0" step="0.5"
-        onchange="updateScore('${team}', '${round.name}', this.value)"></td>`;
+    rounds.forEach(round => {
+      const score = state.scores[team] && typeof state.scores[team][round.name] !== 'undefined' ? state.scores[team][round.name] : 0;
+      total += Number(score) || 0;
+      const safeTeam = team.replace(/'/g, "\\'");
+      const safeRound = (round.name || '').replace(/'/g, "\\'");
+      html += `<td><input type="number" class="score-input neon-input" value="${score}" min="0" step="0.5" onchange="updateScore('${safeTeam}', '${safeRound}', this.value)" onblur="handleScoreBlur('${safeTeam}', '${safeRound}', this.value)"></td>`;
     });
     html += `<td>${total}</td></tr>`;
   });
-  html += '</table>';
+  html += '</tbody></table>';
   elements.scoreboardTable.innerHTML = html;
   updateQuizStats();
 }
+
+// Helper: get team id by name (cache, fallback to DB)
+async function getTeamIdByName(name) {
+  if (state._teamIdByName && state._teamIdByName[name]) return state._teamIdByName[name];
+  if (!state.quizId) return null;
+  const { data, error } = await supabase.from('teams').select('id').eq('quiz_id', state.quizId).eq('name', name).limit(1).maybeSingle();
+  if (error) { console.warn('getTeamIdByName error', error); return null; }
+  if (data && data.id) { state._teamIdByName[name] = data.id; return data.id; }
+  return null;
+}
+
+// Helper: get round id by name
+async function getRoundIdByName(name) {
+  if (state._roundIdByName && state._roundIdByName[name]) return state._roundIdByName[name];
+  if (!state.quizId) return null;
+  const { data, error } = await supabase.from('rounds').select('id').eq('quiz_id', state.quizId).eq('name', name).limit(1).maybeSingle();
+  if (error) { console.warn('getRoundIdByName error', error); return null; }
+  if (data && data.id) { state._roundIdByName[name] = data.id; return data.id; }
+  return null;
+}
+
+// Save a single score to Supabase (used for live sync)
+async function saveSingleScore(teamName, roundName, value) {
+  if (mode !== 'supabase' || !state.quizId) return;
+  try {
+    const teamId = await getTeamIdByName(teamName);
+    const roundId = await getRoundIdByName(roundName);
+    if (!teamId || !roundId) { console.warn('Missing team or round id for live save', teamName, roundName); return; }
+    const payload = { team_id: teamId, round_id: roundId, score: Number(value) || 0 };
+    const { error } = await supabase.from('scores').upsert([payload], { onConflict: ['team_id', 'round_id'] });
+    if (error) console.warn('saveSingleScore error', error);
+  } catch (e) { console.error('saveSingleScore unexpected', e); }
+}
+
+// Called on input onblur — update local state already done by updateScore; trigger save if liveSync enabled
+window.handleScoreBlur = async function(team, round, val) {
+  if (state.liveSync && mode === 'supabase' && state.quizId) {
+    await saveSingleScore(team, round, val);
+  }
+};
 
 window.updateScore = function(team, round, score) {
   if (!state.isAdmin) return;
@@ -820,6 +885,14 @@ document.addEventListener('DOMContentLoaded', function() {
   if (elements.saveQuiz) elements.saveQuiz.onclick = saveQuizToSupabase;
   if (elements.loadQuiz) elements.loadQuiz.onclick = loadQuizFromSupabase;
   if (elements.exportQuiz) elements.exportQuiz.onclick = exportQuizData;
+  if (elements.focusModeToggle) elements.focusModeToggle.onclick = () => {
+    state.focusMode = !state.focusMode;
+    document.body.classList.toggle('focus-mode', state.focusMode);
+    elements.focusModeToggle.textContent = state.focusMode ? 'Exit Focus' : 'Focus Mode';
+  };
+  if (elements.liveSyncToggle) elements.liveSyncToggle.onchange = (e) => {
+    state.liveSync = !!e.target.checked;
+  };
   if (elements.tabButtons) elements.tabButtons.forEach(button => {
     button.onclick = () => {
       const tab = button.dataset.tab;
