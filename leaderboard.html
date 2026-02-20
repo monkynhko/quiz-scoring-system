@@ -223,6 +223,9 @@
       const select = document.createElement('select');
       select.id = 'seasonSelect';
       select.style = 'padding:8px 12px; font-size:1.05em; border-radius:10px; border:1px solid #0ff; background:#222; color:#0ff;';
+      // ensure select is wide enough to show long season names
+      select.style.minWidth = '160px';
+      select.style.boxSizing = 'border-box';
       (seasons || []).forEach(s => {
         const opt = document.createElement('option');
         opt.value = s.id;
@@ -231,12 +234,18 @@
         select.appendChild(opt);
       });
       // try to set current selection
-      try { if (currentSeasonId) select.value = currentSeasonId; else {
-        const activeOpt = select.querySelector('option[data-active="1"]');
-        if (activeOpt) select.value = activeOpt.value; else if (select.options.length) select.value = select.options[0].value;
-      }} catch (e) {}
+      try {
+        console.log('renderSeasonDropdown: seasons', seasons);
+        if (currentSeasonId) select.value = currentSeasonId;
+        else {
+          const activeOpt = select.querySelector('option[data-active="1"]');
+          if (activeOpt) select.value = activeOpt.value; else if (select.options.length) select.value = select.options[0].value;
+        }
+        console.log('renderSeasonDropdown: selected', select.value, 'text', select.options[select.selectedIndex] && select.options[select.selectedIndex].text);
+      } catch (e) { console.warn('season select set value failed', e); }
       select.addEventListener('change', async () => {
         currentSeasonId = select.value;
+        console.log('season changed to', currentSeasonId);
         if (typeof onSelect === 'function') await onSelect(select.value);
       });
       container.appendChild(select);
