@@ -10,7 +10,7 @@
             .scoreboard-wrapper { overflow:auto; max-height:60vh; }
             table.scoreboard-table { border-collapse:separate; width:100%; }
             table.scoreboard-table th { position:sticky; top:0; background:#2b2540; z-index:3; }
-            table.scoreboard-table td.first-col, table.scoreboard-table th.first-col { position:sticky; left:0; background:#241c35; z-index:2; }
+            table.scoreboard-table td.first-col, table.scoreboard-table th.first-col { position:sticky; left:0; background:#241c35; z-index:2; color:#fff; }
             /* Focus mode hides everything except scoreboard */
             body.focus-mode header, body.focus-mode .admin-controls, body.focus-mode .neon-box:not(#scoreboardSection) { display:none !important; }
             /* Make details sections look nicer */
@@ -78,14 +78,14 @@
             <!-- Leaderboard Tab -->
             <div id="leaderboardTab" class="tab-content">
                 <section class="neon-box" id="leaderboardSection">
-                    <div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start;">
-                        <div style="flex: 1 1 350px; min-width: 300px;">
-                            <h2>Current Rankings</h2>
-                            <div id="leaderboardDisplay"></div>
-                        </div>
-                        <div style="flex: 1 1 350px; min-width: 300px;">
-                            <h2>Kvízové Štatistiky</h2>
-                            <div id="quizStats" class="stats-grid">
+                                        <div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start;">
+                                                <details style="flex: 1 1 350px; min-width:300px;" open>
+                                                    <summary>Current Rankings</summary>
+                                                    <div id="leaderboardDisplay"></div>
+                                                </details>
+                                                <details style="flex: 1 1 350px; min-width:300px;" open>
+                                                    <summary>Kvízové Štatistiky</summary>
+                                                    <div id="quizStats" class="stats-grid">
                                 <div class="stat-card">
                                     <h3>Top Score</h3>
                                     <div id="topScore"></div>
