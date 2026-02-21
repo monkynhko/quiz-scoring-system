@@ -517,7 +517,7 @@
       if (roundIds.length) {
         const { data: rtData } = await supabase
           .from('round_topics')
-          .select('id, round_id, category_id, topic_order, max_points, custom_name')
+          .select('id, round_id, category_id, topic_order, max_points')
           .in('round_id', roundIds)
           .order('topic_order');
         roundTopicsData = rtData || [];
@@ -562,11 +562,11 @@
             return {
               id: rt.id,
               categoryId: rt.category_id,
-              categoryName: rt.custom_name || (cat ? cat.name : 'Unknown'),
+              categoryName: cat ? cat.name : 'Unknown',
               categoryIcon: cat ? (cat.icon || '') : '❓',
               topicOrder: rt.topic_order,
               maxPoints: rt.max_points || 5,
-              customName: rt.custom_name
+              customName: null
             };
           });
         return { ...round, topics };
@@ -663,7 +663,7 @@
       if (hasTopics) {
         roundTopicsData.forEach(rt => {
           const cat = categoriesMap[rt.category_id];
-          const catName = rt.custom_name || (cat ? cat.name : 'Other');
+          const catName = cat ? cat.name : 'Other';
           const catIcon = cat ? (cat.icon || '') : '❓';
           if (!categoryStats[catName]) {
             categoryStats[catName] = { icon: catIcon, totalScore: 0, maxPossible: 0, count: 0, teamScores: {} };
