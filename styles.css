@@ -300,7 +300,7 @@ section h2 {
 }
 
 #scoreboardTable tr:nth-child(odd) td {
-    color: #222;
+    color: #fff;
 }
 
 .score-input {
@@ -375,4 +375,79 @@ section h2 {
         display: block;
         overflow-x: auto;
     }
+}
+
+/* Round item card with topic info */
+.round-item-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 8px;
+    border: 1px solid rgba(255,0,255,0.15);
+    margin-bottom: 6px;
+}
+.round-item-card:hover {
+    background: rgba(255,255,255,0.10);
+}
+
+/* Progress bar for category stats */
+.progress-bar-container {
+    background: #222;
+    border-radius: 6px;
+    height: 14px;
+    overflow: hidden;
+    position: relative;
+}
+.progress-bar-container > div {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.5s ease;
+}
+
+/* Category stat card */
+.category-stat-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.category-stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0,255,255,0.2);
+}
+
+/* Momentum indicators */
+.momentum-up {
+    font-size: 1.2em;
+    filter: drop-shadow(0 0 4px rgba(0,255,0,0.4));
+}
+.momentum-down {
+    font-size: 1.2em;
+    filter: drop-shadow(0 0 4px rgba(255,0,0,0.4));
+}
+.momentum-stable {
+    font-size: 1.0em;
+    color: #888;
+}
+
+/* Topic selection modal */
+.topic-modal-select {
+    width: 100%;
+    padding: 8px;
+    margin-top: 6px;
+    border-radius: 8px;
+    border: 1px solid #333;
+    background: #222;
+    color: #fff;
+}
+.topic-modal-select:focus {
+    border-color: #0ff;
+    outline: none;
+}
+
+/* Scoreboard topic header two-row */
+#scoreboardTable table th {
+    white-space: nowrap;
+}
+#scoreboardTable table {
+    border-collapse: collapse;
 }

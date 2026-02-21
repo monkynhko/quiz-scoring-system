@@ -127,17 +127,14 @@ const state = {
   isAdmin: false,
   quizId: null,
   teams: [],
-  rounds: [],
-  scores: {}, // { teamId: { roundId: score } }
+  rounds: [],       // [{ name, topics: [{ categoryId, categoryName, categoryIcon, topicOrder, maxPoints, customName }] }]
+  scores: {},        // { teamName: { roundName: score } } — legacy flat scores
+  topicScores: {},   // { teamName: { roundTopicKey: score } } — topic-level scores
+  roundTopics: {},   // { roundName: [{ id, categoryId, categoryName, categoryIcon, topicOrder, maxPoints, customName }] }
+  categories: [],    // [{ id, name, icon }]
   quizzes: [],
   currentTab: 'scoring'
 };
-
-// runtime flags and caches
-state.liveSync = false;
-state.focusMode = false;
-state._teamIdByName = {};
-state._roundIdByName = {};
 
 const elements = {
   teamName: document.getElementById('teamName'),
@@ -152,8 +149,6 @@ const elements = {
   saveQuiz: document.getElementById('saveQuiz'),
   loadQuiz: document.getElementById('loadQuiz'),
   exportQuiz: document.getElementById('exportQuiz'),
-  focusModeToggle: document.getElementById('focusModeToggle'),
-  liveSyncToggle: document.getElementById('liveSyncToggle'),
   tabButtons: document.querySelectorAll('.tab-button'),
   tabContents: document.querySelectorAll('.tab-content'),
   quizStats: {
@@ -286,6 +281,7 @@ async function saveQuizToSupabase() {
     name: r.name,
     round_order: i
   }));
+  // Delete old round_topics and topic_scores first (cascade from rounds)
   await supabase.from('rounds').delete().eq('quiz_id', quizId);
   const { data: rounds, error: roundsErr } = await supabase
     .from('rounds')
@@ -295,7 +291,65 @@ async function saveQuizToSupabase() {
     alert('Chyba pri ukladaní kôl: ' + roundsErr.message);
     return;
   }
-  // 4. Scores
+  // 4. Round Topics
+  const roundTopicsPayload = [];
+  rounds.forEach(round => {
+    const topics = state.roundTopics[round.name] || [];
+    topics.forEach((t, idx) => {
+      roundTopicsPayload.push({
+        round_id: round.id,
+        category_id: t.categoryId || null,
+        topic_order: idx + 1,
+        max_points: t.maxPoints || 5,
+        custom_name: t.customName || null
+      });
+    });
+  });
+  
+  let savedRoundTopics = [];
+  if (roundTopicsPayload.length > 0) {
+    const { data: rtData, error: rtErr } = await supabase
+      .from('round_topics')
+      .insert(roundTopicsPayload)
+      .select('id, round_id, category_id, topic_order, max_points, custom_name');
+    if (rtErr) {
+      alert('Chyba pri ukladaní tém kôl: ' + rtErr.message);
+      return;
+    }
+    savedRoundTopics = rtData || [];
+  }
+  
+  // 5. Topic Scores (if we have round_topics)
+  if (savedRoundTopics.length > 0) {
+    const topicScoresPayload = [];
+    teams.forEach(team => {
+      rounds.forEach(round => {
+        const topics = state.roundTopics[round.name] || [];
+        topics.forEach((t, idx) => {
+          const key = round.name + '::' + (idx + 1);
+          const val = (state.topicScores[team.name] && state.topicScores[team.name][key]) || 0;
+          // Find the matching saved round_topic
+          const rt = savedRoundTopics.find(rt => rt.round_id === round.id && rt.topic_order === (idx + 1));
+          if (rt) {
+            topicScoresPayload.push({
+              team_id: team.id,
+              round_topic_id: rt.id,
+              score: typeof val === 'number' && val >= 0 ? val : 0
+            });
+          }
+        });
+      });
+    });
+    if (topicScoresPayload.length > 0) {
+      const { error: tsErr } = await supabase.from('topic_scores').insert(topicScoresPayload);
+      if (tsErr) {
+        alert('Chyba pri ukladaní topic skóre: ' + tsErr.message);
+        return;
+      }
+    }
+  }
+  
+  // 6. Legacy Scores (backward compatibility)
   await supabase.from('scores').delete().in('team_id', teams.map(t => t.id));
   const scoresPayload = [];
   teams.forEach(team => {
@@ -315,13 +369,6 @@ async function saveQuizToSupabase() {
       return;
     }
   }
-  // populate id caches for live sync
-  state._teamIdByName = {};
-  (teams || []).forEach(t => { state._teamIdByName[t.name] = t.id; });
-  state._roundIdByName = {};
-  (rounds || []).forEach(r => { state._roundIdByName[r.name] = r.id; });
-  // close setup accordions after quiz starts
-  try { document.getElementById('teamsDetails').open = false; document.getElementById('roundsDetails').open = false; } catch (e) {}
   alert('Quiz uložený do Supabase!');
 }
 
@@ -385,33 +432,98 @@ async function loadQuizById(quizId) {
     .select('id, name')
     .eq('quiz_id', quizId);
   state.teams = teams.map(t => t.name);
-  // cache team ids
-  state._teamIdByName = {};
-  (teams || []).forEach(t => { state._teamIdByName[t.name] = t.id; });
   // 3. Rounds
   const { data: rounds } = await supabase
     .from('rounds')
     .select('id, name, round_order')
     .eq('quiz_id', quizId)
     .order('round_order');
-  state.rounds = rounds.map(r => ({ name: r.name }));
-  state._roundIdByName = {};
-  (rounds || []).forEach(r => { state._roundIdByName[r.name] = r.id; });
-  // 4. Scores
+  
+  // 4. Round Topics (new topic-based system)
+  const roundIds = rounds.map(r => r.id);
+  let roundTopicsData = [];
+  if (roundIds.length) {
+    const { data: rtData } = await supabase
+      .from('round_topics')
+      .select('id, round_id, category_id, topic_order, max_points, custom_name')
+      .in('round_id', roundIds)
+      .order('topic_order');
+    roundTopicsData = rtData || [];
+  }
+  
+  // Fetch category info for round_topics
+  const categoryIds = [...new Set(roundTopicsData.filter(rt => rt.category_id).map(rt => rt.category_id))];
+  let categoriesMap = {};
+  if (categoryIds.length) {
+    const { data: cats } = await supabase
+      .from('categories')
+      .select('id, name, icon')
+      .in('id', categoryIds);
+    (cats || []).forEach(c => { categoriesMap[c.id] = c; });
+  }
+  
+  // Build state.rounds with topics and state.roundTopics
+  state.roundTopics = {};
+  state.rounds = rounds.map(r => {
+    const rTopics = roundTopicsData.filter(rt => rt.round_id === r.id).sort((a, b) => a.topic_order - b.topic_order);
+    const topics = rTopics.map(rt => {
+      const cat = categoriesMap[rt.category_id];
+      return {
+        id: rt.id,
+        categoryId: rt.category_id,
+        categoryName: rt.custom_name || (cat ? cat.name : 'Unknown'),
+        categoryIcon: cat ? (cat.icon || '') : '❓',
+        topicOrder: rt.topic_order,
+        maxPoints: rt.max_points || 5,
+        customName: rt.custom_name || null
+      };
+    });
+    state.roundTopics[r.name] = topics;
+    return { name: r.name, topics };
+  });
+  
+  // 5. Topic Scores (new system)
+  const rtIds = roundTopicsData.map(rt => rt.id);
+  let topicScoresData = [];
+  if (rtIds.length) {
+    const { data: tsData } = await supabase
+      .from('topic_scores')
+      .select('team_id, round_topic_id, score')
+      .in('round_topic_id', rtIds);
+    topicScoresData = tsData || [];
+  }
+  
+  // 6. Legacy Scores (backward compat)
   const { data: scores } = await supabase
     .from('scores')
     .select('team_id, round_id, score');
-  // Map scores
+  
+  // Map legacy scores
   state.scores = {};
   teams.forEach(team => {
     state.scores[team.name] = {};
     rounds.forEach(round => {
-      const s = scores.find(
+      const s = (scores || []).find(
         sc => sc.team_id === team.id && sc.round_id === round.id
       );
       state.scores[team.name][round.name] = s ? Number(s.score) : 0;
     });
   });
+  
+  // Map topic scores
+  state.topicScores = {};
+  teams.forEach(team => {
+    state.topicScores[team.name] = {};
+    rounds.forEach(round => {
+      const rTopics = roundTopicsData.filter(rt => rt.round_id === round.id).sort((a, b) => a.topic_order - b.topic_order);
+      rTopics.forEach((rt, idx) => {
+        const key = round.name + '::' + (idx + 1);
+        const ts = topicScoresData.find(ts => ts.team_id === team.id && ts.round_topic_id === rt.id);
+        state.topicScores[team.name][key] = ts ? Number(ts.score) : 0;
+      });
+    });
+  });
+  
   updateTeamsList();
   updateRoundsList();
   updateScoreboard();
@@ -493,6 +605,21 @@ async function fetchSeasons() {
   return data || [];
 }
 
+// Fetch categories list for round topic selection
+async function fetchCategories() {
+  if (mode !== 'supabase') return [];
+  const { data, error } = await supabase
+    .from('categories')
+    .select('id, name, icon')
+    .order('name', { ascending: true });
+  if (error) {
+    console.warn('fetchCategories error', error);
+    return [];
+  }
+  state.categories = data || [];
+  return state.categories;
+}
+
 // === FALLBACK LOCALSTORAGE ===
 function saveQuizToLocal() {
   localStorage.setItem('quizData', JSON.stringify(state));
@@ -534,8 +661,14 @@ function addTeam() {
     if (!state.teams.includes(teamName)) {
       state.teams.push(teamName);
       state.scores[teamName] = {};
+      state.topicScores[teamName] = {};
       state.rounds.forEach(round => {
         state.scores[teamName][round.name] = 0;
+        const topics = round.topics || state.roundTopics[round.name] || [];
+        topics.forEach((t, idx) => {
+          const key = round.name + '::' + (idx + 1);
+          state.topicScores[teamName][key] = 0;
+        });
       });
       addedCount++;
     }
@@ -556,15 +689,114 @@ function addRound() {
     alert('Round already exists!');
     return;
   }
-  const round = { name: roundName };
-  state.rounds.push(round);
-  state.teams.forEach(team => {
-    state.scores[team][roundName] = 0;
+  // Show topic selection modal for 2 topics
+  showTopicSelectionModal(roundName, (topic1, topic2) => {
+    const topics = [topic1, topic2];
+    const round = { name: roundName, topics };
+    state.rounds.push(round);
+    state.roundTopics[roundName] = topics;
+    // Initialize topic scores for all teams
+    state.teams.forEach(team => {
+      if (!state.topicScores[team]) state.topicScores[team] = {};
+      topics.forEach((t, idx) => {
+        const key = roundName + '::' + (idx + 1);
+        state.topicScores[team][key] = 0;
+      });
+      // Also keep legacy flat score
+      if (!state.scores[team]) state.scores[team] = {};
+      state.scores[team][roundName] = 0;
+    });
+    elements.roundName.value = '';
+    updateRoundsList();
+    updateScoreboard();
+    updateLeaderboard();
   });
-  elements.roundName.value = '';
-  updateRoundsList();
-  updateScoreboard();
-  updateLeaderboard();
+}
+
+// Show modal for selecting 2 topics (categories) for a round
+function showTopicSelectionModal(roundName, onConfirm) {
+  const overlay = document.createElement('div');
+  overlay.style = 'position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:9999;';
+  const box = document.createElement('div');
+  box.style = 'background:#111; color:#fff; padding:24px; border-radius:12px; min-width:360px; max-width:90%;';
+  
+  function buildCategorySelect(num) {
+    let opts = state.categories.map(c => `<option value="${c.id}">${c.icon || ''} ${c.name}</option>`).join('');
+    return `
+      <div style="margin-bottom:12px;">
+        <label style="font-weight:bold;">Téma ${num}:</label><br>
+        <select id="topicCat${num}" style="width:100%; padding:8px; margin-top:6px; border-radius:8px; border:1px solid #333; background:#222; color:#fff;">
+          ${opts}
+          <option value="__custom__">Iná...</option>
+        </select>
+        <input id="topicCustom${num}" placeholder="Vlastný názov kategórie" style="width:100%; padding:8px; margin-top:6px; border-radius:8px; border:1px solid #333; display:none;" />
+        <div style="margin-top:6px;">
+          <label style="font-size:0.9em;">Max bodov:</label>
+          <input id="topicMax${num}" type="number" value="5" min="1" max="20" step="0.5" style="width:60px; padding:4px; border-radius:6px; border:1px solid #333; margin-left:6px;" />
+        </div>
+      </div>
+    `;
+  }
+  
+  box.innerHTML = `
+    <h3 style="margin-top:0">Kolo: ${roundName}</h3>
+    <p style="color:#aaa; font-size:0.9em; margin-bottom:12px;">Vyber 2 témy (kategórie) pre toto kolo:</p>
+    ${buildCategorySelect(1)}
+    ${buildCategorySelect(2)}
+    <div style="text-align:right; display:flex; gap:8px; justify-content:flex-end;">
+      <button id="cancelTopicModal" class="neon-button">Zrušiť</button>
+      <button id="confirmTopicModal" class="neon-button">Pridať kolo</button>
+    </div>
+  `;
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  
+  // Wire up custom category toggles
+  [1, 2].forEach(n => {
+    const sel = box.querySelector(`#topicCat${n}`);
+    const customInput = box.querySelector(`#topicCustom${n}`);
+    sel.addEventListener('change', () => {
+      customInput.style.display = sel.value === '__custom__' ? '' : 'none';
+    });
+  });
+  
+  box.querySelector('#cancelTopicModal').onclick = () => overlay.remove();
+  box.querySelector('#confirmTopicModal').onclick = () => {
+    const topics = [];
+    for (let n = 1; n <= 2; n++) {
+      const sel = box.querySelector(`#topicCat${n}`);
+      const customInput = box.querySelector(`#topicCustom${n}`);
+      const maxPts = parseFloat(box.querySelector(`#topicMax${n}`).value) || 5;
+      
+      if (sel.value === '__custom__') {
+        const customName = customInput.value.trim();
+        if (!customName) {
+          alert(`Zadaj vlastný názov pre tému ${n}.`);
+          return;
+        }
+        topics.push({
+          categoryId: null,
+          categoryName: customName,
+          categoryIcon: '❓',
+          topicOrder: n,
+          maxPoints: maxPts,
+          customName: customName
+        });
+      } else {
+        const cat = state.categories.find(c => c.id === sel.value);
+        topics.push({
+          categoryId: cat ? cat.id : null,
+          categoryName: cat ? cat.name : 'Unknown',
+          categoryIcon: cat ? (cat.icon || '') : '',
+          topicOrder: n,
+          maxPoints: maxPts,
+          customName: null
+        });
+      }
+    }
+    overlay.remove();
+    onConfirm(topics[0], topics[1]);
+  };
 }
 
 function updateTeamsList() {
@@ -595,15 +827,15 @@ function updateRoundsList() {
   elements.roundsList.innerHTML = '';
   state.rounds.forEach(round => {
     const roundDiv = document.createElement('div');
-    roundDiv.className = 'team-item';
-    const safeName = round.name.replace(/'/g, "\\'");
+    roundDiv.className = 'team-item round-item-card';
+    const topics = round.topics || state.roundTopics[round.name] || [];
+    const topicLabels = topics.map(t => `${t.categoryIcon || ''} ${t.customName || t.categoryName || '?'} (max ${t.maxPoints || 5})`).join(' | ');
     roundDiv.innerHTML = `
-      <span>${round.name}</span>
-      <div style="display:inline-flex; gap:6px;">
-        <button onclick="moveRound('${safeName}', -1)" class="neon-button">↑</button>
-        <button onclick="moveRound('${safeName}', 1)" class="neon-button">↓</button>
-        <button onclick="removeRound('${safeName}')" class="neon-button">Remove</button>
+      <div>
+        <strong>${round.name}</strong>
+        <div style="font-size:0.85em; color:#aaa; margin-top:2px;">${topicLabels || 'Žiadne témy'}</div>
       </div>
+      <button onclick="removeRound('${round.name}')" class="neon-button">Remove</button>
     `;
     elements.roundsList.appendChild(roundDiv);
   });
@@ -615,24 +847,18 @@ window.removeRound = function(roundName) {
     state.rounds.splice(index, 1);
     state.teams.forEach(team => {
       delete state.scores[team][roundName];
+      // remove topic scores
+      if (state.topicScores[team]) {
+        Object.keys(state.topicScores[team]).forEach(key => {
+          if (key.startsWith(roundName + '::')) delete state.topicScores[team][key];
+        });
+      }
     });
+    delete state.roundTopics[roundName];
     updateRoundsList();
     updateScoreboard();
     updateLeaderboard();
   }
-};
-
-// Move round up/down
-window.moveRound = function(roundName, dir) {
-  if (!state.isAdmin) return;
-  const idx = state.rounds.findIndex(r => r.name === roundName);
-  if (idx === -1) return;
-  const newIdx = idx + dir;
-  if (newIdx < 0 || newIdx >= state.rounds.length) return;
-  const [r] = state.rounds.splice(idx, 1);
-  state.rounds.splice(newIdx, 0, r);
-  updateRoundsList();
-  updateScoreboard();
 };
 
 function updateScoreboard() {
@@ -640,85 +866,76 @@ function updateScoreboard() {
     elements.scoreboardTable.innerHTML = '<p>Add teams and rounds to see the scoreboard</p>';
     return;
   }
-  const MAX_TOPICS = 10;
-  const rounds = state.rounds.slice(0, MAX_TOPICS);
-  // pad with empty topics if less than MAX_TOPICS
-  while (rounds.length < MAX_TOPICS) rounds.push({ name: '' });
-  let html = '<table class="scoreboard-table">';
-  html += '<thead><tr>';
-  html += '<th class="first-col">Team</th>';
-  rounds.forEach((round, idx) => {
-    html += `<th>${idx+1}. ${round.name || ''}</th>`;
-  });
-  html += '<th>Total</th></tr></thead><tbody>';
-  state.teams.forEach(team => {
-    html += `<tr><td class="first-col">${team}</td>`;
-    let total = 0;
-    rounds.forEach(round => {
-      const score = state.scores[team] && typeof state.scores[team][round.name] !== 'undefined' ? state.scores[team][round.name] : 0;
-      total += Number(score) || 0;
-      const safeTeam = team.replace(/'/g, "\\'");
-      const safeRound = (round.name || '').replace(/'/g, "\\'");
-      html += `<td><input type="number" class="score-input neon-input" value="${score}" min="0" step="0.5" onchange="updateScore('${safeTeam}', '${safeRound}', this.value)" onblur="handleScoreBlur('${safeTeam}', '${safeRound}', this.value)"></td>`;
+  
+  // Determine if we have topic-based rounds
+  const hasTopics = state.rounds.some(r => (r.topics && r.topics.length) || (state.roundTopics[r.name] && state.roundTopics[r.name].length));
+  
+  let html = '<table>';
+  
+  if (hasTopics) {
+    // Two-row header: round name spanning 2 cols, then topic names below
+    html += '<tr><th rowspan="2">Team</th>';
+    state.rounds.forEach(round => {
+      const topics = round.topics || state.roundTopics[round.name] || [];
+      const colspan = topics.length || 1;
+      html += `<th colspan="${colspan}" style="border-bottom:none; text-align:center;">${round.name}</th>`;
     });
-    html += `<td>${total}</td></tr>`;
+    html += '<th rowspan="2">Total</th></tr>';
+    // Second header row: topic names
+    html += '<tr>';
+    state.rounds.forEach(round => {
+      const topics = round.topics || state.roundTopics[round.name] || [];
+      if (topics.length) {
+        topics.forEach(t => {
+          const label = (t.categoryIcon || '') + ' ' + (t.customName || t.categoryName || '?');
+          html += `<th style="font-size:0.8em; font-weight:normal; color:#aaa;">${label}<br><span style="font-size:0.75em;">(max ${t.maxPoints || 5})</span></th>`;
+        });
+      } else {
+        html += `<th style="font-size:0.8em;">&nbsp;</th>`;
+      }
+    });
+    html += '</tr>';
+  } else {
+    // Legacy single-row header
+    html += '<tr><th>Team</th>';
+    state.rounds.forEach(round => {
+      html += `<th>${round.name}</th>`;
+    });
+    html += '<th>Total</th></tr>';
+  }
+  
+  // Data rows
+  state.teams.forEach(team => {
+    html += `<tr><td>${team}</td>`;
+    let total = 0;
+    state.rounds.forEach(round => {
+      const topics = round.topics || state.roundTopics[round.name] || [];
+      if (topics.length) {
+        topics.forEach((t, idx) => {
+          const key = round.name + '::' + (idx + 1);
+          const score = (state.topicScores[team] && state.topicScores[team][key]) || 0;
+          total += score;
+          const safeTeam = team.replace(/'/g, "\\'");
+          const safeKey = key.replace(/'/g, "\\'");
+          html += `<td><input type="number" class="score-input neon-input" 
+            value="${score}" min="0" max="${t.maxPoints || 10}" step="0.5"
+            onchange="updateTopicScore('${safeTeam}', '${safeKey}', this.value)"></td>`;
+        });
+      } else {
+        // Legacy: single score per round
+        const score = state.scores[team][round.name] || 0;
+        total += score;
+        html += `<td><input type="number" class="score-input neon-input" 
+          value="${score}" min="0" step="0.5"
+          onchange="updateScore('${team}', '${round.name}', this.value)"></td>`;
+      }
+    });
+    html += `<td><strong>${total}</strong></td></tr>`;
   });
-  html += '</tbody></table>';
+  html += '</table>';
   elements.scoreboardTable.innerHTML = html;
   updateQuizStats();
 }
-
-// Helper: get team id by name (cache, fallback to DB)
-async function getTeamIdByName(name) {
-  if (state._teamIdByName && state._teamIdByName[name]) return state._teamIdByName[name];
-  if (!state.quizId) return null;
-  const { data, error } = await supabase.from('teams').select('id').eq('quiz_id', state.quizId).eq('name', name).limit(1).maybeSingle();
-  if (error) { console.warn('getTeamIdByName error', error); return null; }
-  if (data && data.id) { state._teamIdByName[name] = data.id; return data.id; }
-  return null;
-}
-
-// Helper: get round id by name
-async function getRoundIdByName(name) {
-  if (state._roundIdByName && state._roundIdByName[name]) return state._roundIdByName[name];
-  if (!state.quizId) return null;
-  const { data, error } = await supabase.from('rounds').select('id').eq('quiz_id', state.quizId).eq('name', name).limit(1).maybeSingle();
-  if (error) { console.warn('getRoundIdByName error', error); return null; }
-  if (data && data.id) { state._roundIdByName[name] = data.id; return data.id; }
-  return null;
-}
-
-// Save a single score to Supabase (used for live sync)
-async function saveSingleScore(teamName, roundName, value) {
-  if (mode !== 'supabase' || !state.quizId) return;
-  try {
-    const teamId = await getTeamIdByName(teamName);
-    const roundId = await getRoundIdByName(roundName);
-    if (!teamId || !roundId) { console.warn('Missing team or round id for live save', teamName, roundName); return; }
-    const payload = { team_id: teamId, round_id: roundId, score: Number(value) || 0 };
-    const { error } = await supabase.from('scores').upsert([payload], { onConflict: ['team_id', 'round_id'] });
-    if (error) console.warn('saveSingleScore error', error);
-  } catch (e) { console.error('saveSingleScore unexpected', e); }
-}
-
-// Called on input onblur — update local state already done by updateScore; trigger save if liveSync enabled
-window.handleScoreBlur = async function(team, round, val) {
-  if (state.liveSync && mode === 'supabase') {
-    // If quiz isn't persisted yet, create it (teams/rounds) so we can save scores
-    if (!state.quizId) {
-      if (!state.isAdmin) {
-        console.warn('Cannot auto-save: not admin and quiz not saved');
-        return;
-      }
-      try {
-        await saveQuizToSupabase();
-      } catch (e) { console.warn('Auto-create quiz failed', e); return; }
-    }
-    if (state.quizId) {
-      await saveSingleScore(team, round, val);
-    }
-  }
-};
 
 window.updateScore = function(team, round, score) {
   if (!state.isAdmin) return;
@@ -729,9 +946,44 @@ window.updateScore = function(team, round, score) {
   updateLeaderboard();
 };
 
+window.updateTopicScore = function(team, topicKey, score) {
+  if (!state.isAdmin) return;
+  let parsed = parseFloat(score);
+  if (isNaN(parsed) || parsed < 0) parsed = 0;
+  if (!state.topicScores[team]) state.topicScores[team] = {};
+  state.topicScores[team][topicKey] = parsed;
+  // Update legacy flat score (sum of topics in this round)
+  const roundName = topicKey.split('::')[0];
+  if (state.scores[team]) {
+    let roundTotal = 0;
+    const topics = state.roundTopics[roundName] || [];
+    topics.forEach((t, idx) => {
+      const key = roundName + '::' + (idx + 1);
+      roundTotal += (state.topicScores[team] && state.topicScores[team][key]) || 0;
+    });
+    state.scores[team][roundName] = roundTotal;
+  }
+  updateScoreboard();
+  updateLeaderboard();
+};
+
 function updateLeaderboard() {
+  const hasTopics = state.rounds.some(r => (r.topics && r.topics.length) || (state.roundTopics[r.name] && state.roundTopics[r.name].length));
+  
   const teamScores = state.teams.map(team => {
-    const total = Object.values(state.scores[team] || {}).reduce((sum, score) => sum + score, 0);
+    let total = 0;
+    if (hasTopics) {
+      // Sum topic scores
+      state.rounds.forEach(round => {
+        const topics = round.topics || state.roundTopics[round.name] || [];
+        topics.forEach((t, idx) => {
+          const key = round.name + '::' + (idx + 1);
+          total += (state.topicScores[team] && state.topicScores[team][key]) || 0;
+        });
+      });
+    } else {
+      total = Object.values(state.scores[team] || {}).reduce((sum, score) => sum + score, 0);
+    }
     return { team, total };
   }).sort((a, b) => b.total - a.total);
   elements.leaderboardDisplay.innerHTML = `
@@ -850,6 +1102,8 @@ async function confirmNewQuiz() {
     state.teams = [];
     state.rounds = [];
     state.scores = {};
+    state.topicScores = {};
+    state.roundTopics = {};
     state.title = title;
     state.seasonId = seasonId;
     state.quizId = null;
@@ -904,6 +1158,7 @@ function renderQuizDropdown(quizzes, onSelect, label = 'Vyber quiz:') {
 (async function initialLoad() {
   await supabaseReady;
   await fetchAdminProfile();
+  if (mode === 'supabase') await fetchCategories();
   setAdminUI(state.isAdmin);
   renderAuthButtons(); // <-- pridaj sem, aby sa zobrazilo vždy
 })();
@@ -915,41 +1170,6 @@ document.addEventListener('DOMContentLoaded', function() {
   if (elements.saveQuiz) elements.saveQuiz.onclick = saveQuizToSupabase;
   if (elements.loadQuiz) elements.loadQuiz.onclick = loadQuizFromSupabase;
   if (elements.exportQuiz) elements.exportQuiz.onclick = exportQuizData;
-  if (elements.focusModeToggle) elements.focusModeToggle.onclick = () => {
-    state.focusMode = !state.focusMode;
-    document.body.classList.toggle('focus-mode', state.focusMode);
-    elements.focusModeToggle.textContent = state.focusMode ? 'Exit Focus' : 'Focus Mode';
-  };
-  if (elements.liveSyncToggle) elements.liveSyncToggle.onchange = (e) => {
-    state.liveSync = !!e.target.checked;
-  };
-  // create floating exit-focus button visible while in focus-mode (header hidden)
-  let exitBtn = document.getElementById('exitFocusBtn');
-  if (!exitBtn) {
-    exitBtn = document.createElement('button');
-    exitBtn.id = 'exitFocusBtn';
-    exitBtn.textContent = 'Exit Focus';
-    exitBtn.style = 'position:fixed; bottom:12px; right:12px; z-index:99999; display:none; padding:10px 14px; border-radius:8px;';
-    document.body.appendChild(exitBtn);
-  }
-  exitBtn.onclick = () => {
-    state.focusMode = false;
-    document.body.classList.remove('focus-mode');
-    if (elements.focusModeToggle) elements.focusModeToggle.textContent = 'Focus Mode';
-    exitBtn.style.display = 'none';
-  };
-  // show/hide exit button according to focus mode toggle
-  const origFocusToggle = elements.focusModeToggle;
-  if (origFocusToggle) {
-    const originalHandler = origFocusToggle.onclick;
-    origFocusToggle.onclick = () => {
-      state.focusMode = !state.focusMode;
-      document.body.classList.toggle('focus-mode', state.focusMode);
-      origFocusToggle.textContent = state.focusMode ? 'Exit Focus' : 'Focus Mode';
-      exitBtn.style.display = state.focusMode ? 'block' : 'none';
-      if (typeof originalHandler === 'function') originalHandler();
-    };
-  }
   if (elements.tabButtons) elements.tabButtons.forEach(button => {
     button.onclick = () => {
       const tab = button.dataset.tab;

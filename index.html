@@ -4,18 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kvíz Factory</title>
-        <link rel="stylesheet" href="styles.css">
-        <style>
-            /* Sticky scoreboard header and first column */
-            .scoreboard-wrapper { overflow:auto; max-height:60vh; }
-            table.scoreboard-table { border-collapse:separate; width:100%; }
-            table.scoreboard-table th { position:sticky; top:0; background:#2b2540; z-index:3; }
-            table.scoreboard-table td.first-col, table.scoreboard-table th.first-col { position:sticky; left:0; background:#241c35; z-index:2; color:#fff; }
-            /* Focus mode hides everything except scoreboard */
-            body.focus-mode header, body.focus-mode .admin-controls, body.focus-mode .neon-box:not(#scoreboardSection) { display:none !important; }
-            /* Make details sections look nicer */
-            details > summary { cursor:pointer; font-weight:bold; margin-bottom:8px; }
-        </style>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="container">
@@ -31,43 +20,34 @@
         <main>
             <!-- Scoring Tab -->
             <div id="scoringTab" class="tab-content active">
-                                <div class="admin-controls">
-                                        <button id="newQuiz" class="neon-button">New Quiz</button>
-                                        <button id="saveQuiz" class="neon-button">Save Quiz</button>
-                                        <button id="loadQuiz" class="neon-button">Load Quiz</button>
-                                        <button id="exportQuiz" class="neon-button">Export Data</button>
-                                        <button id="focusModeToggle" class="neon-button">Focus Mode</button>
-                                        <label style="margin-left:8px; color:#0ff; font-weight:bold; display:inline-flex; align-items:center; gap:8px;">
-                                            Live Sync
-                                            <input id="liveSyncToggle" type="checkbox" />
-                                        </label>
-                                </div>
+                <div class="admin-controls">
+                    <button id="newQuiz" class="neon-button">New Quiz</button>
+                    <button id="saveQuiz" class="neon-button">Save Quiz</button>
+                    <button id="loadQuiz" class="neon-button">Load Quiz</button>
+                    <button id="exportQuiz" class="neon-button">Export Data</button>
+                </div>
 
-                                <details id="teamsDetails" class="neon-box" open>
-                                    <summary>Teams</summary>
-                                    <section id="teamsSection">
-                                        <div class="team-controls">
-                                                <textarea id="teamName" placeholder="Enter team names (one per line)" class="neon-input" rows="5"></textarea>
-                                                <button id="addTeam" class="neon-button">Add Teams</button>
-                                        </div>
-                                        <div id="teamsList"></div>
-                                    </section>
-                                </details>
+                <section id="teamsSection" class="neon-box">
+                    <h2>Teams</h2>
+                    <div class="team-controls">
+                        <textarea id="teamName" placeholder="Enter team names (one per line)" class="neon-input" rows="5"></textarea>
+                        <button id="addTeam" class="neon-button">Add Teams</button>
+                    </div>
+                    <div id="teamsList"></div>
+                </section>
 
-                                <details id="roundsDetails" class="neon-box" open>
-                                    <summary>Topics (Rounds)</summary>
-                                    <section id="roundsSection">
-                                        <div class="round-controls">
-                                                <input type="text" id="roundName" placeholder="Topic name" class="neon-input">
-                                                <button id="addRound" class="neon-button">Add Topic</button>
-                                        </div>
-                                        <div id="roundsList"></div>
-                                    </section>
-                                </details>
+                <section id="roundsSection" class="neon-box">
+                    <h2>Rounds</h2>
+                    <div class="round-controls">
+                        <input type="text" id="roundName" placeholder="Round name" class="neon-input">
+                        <button id="addRound" class="neon-button">Add Round</button>
+                    </div>
+                    <div id="roundsList"></div>
+                </section>
 
                 <section id="scoreboardSection" class="neon-box">
                     <h2>Scoreboard</h2>
-                    <div class="scoreboard-wrapper"><div id="scoreboardTable"></div></div>
+                    <div id="scoreboardTable"></div>
                     <div style="display: flex; gap: 10px; margin-top: 16px;">
                         <button id="sortScoreboard" class="neon-button">Sort by Score</button>
                         <button id="leaderboardScrollBtn" class="neon-button">Leaderboard</button>
@@ -78,14 +58,14 @@
             <!-- Leaderboard Tab -->
             <div id="leaderboardTab" class="tab-content">
                 <section class="neon-box" id="leaderboardSection">
-                                        <div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start;">
-                                                <details style="flex: 1 1 350px; min-width:300px;" open>
-                                                    <summary>Current Rankings</summary>
-                                                    <div id="leaderboardDisplay"></div>
-                                                </details>
-                                                <details style="flex: 1 1 350px; min-width:300px;" open>
-                                                    <summary>Kvízové Štatistiky</summary>
-                                                    <div id="quizStats" class="stats-grid">
+                    <div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start;">
+                        <div style="flex: 1 1 350px; min-width: 300px;">
+                            <h2>Current Rankings</h2>
+                            <div id="leaderboardDisplay"></div>
+                        </div>
+                        <div style="flex: 1 1 350px; min-width: 300px;">
+                            <h2>Kvízové Štatistiky</h2>
+                            <div id="quizStats" class="stats-grid">
                                 <div class="stat-card">
                                     <h3>Top Score</h3>
                                     <div id="topScore"></div>
