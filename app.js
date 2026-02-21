@@ -292,26 +292,40 @@ async function saveQuizToSupabase() {
     return;
   }
   // 4. Round Topics
+  // First, upsert any custom categories into the categories table
   const roundTopicsPayload = [];
-  rounds.forEach(round => {
+  for (const round of rounds) {
     const topics = state.roundTopics[round.name] || [];
-    topics.forEach((t, idx) => {
+    for (let idx = 0; idx < topics.length; idx++) {
+      const t = topics[idx];
+      let catId = t.categoryId || null;
+      // If custom category (no categoryId but has customName), upsert into categories
+      if (!catId && t.customName) {
+        const { data: upserted, error: upsertErr } = await supabase
+          .from('categories')
+          .upsert({ name: t.customName, icon: '❓' }, { onConflict: 'name' })
+          .select('id')
+          .single();
+        if (!upsertErr && upserted) {
+          catId = upserted.id;
+          t.categoryId = catId; // update in-memory too
+        }
+      }
       roundTopicsPayload.push({
         round_id: round.id,
-        category_id: t.categoryId || null,
+        category_id: catId,
         topic_order: idx + 1,
-        max_points: t.maxPoints || 5,
-        custom_name: t.customName || null
+        max_points: t.maxPoints || 5
       });
-    });
-  });
+    }
+  }
   
   let savedRoundTopics = [];
   if (roundTopicsPayload.length > 0) {
     const { data: rtData, error: rtErr } = await supabase
       .from('round_topics')
       .insert(roundTopicsPayload)
-      .select('id, round_id, category_id, topic_order, max_points, custom_name');
+      .select('id, round_id, category_id, topic_order, max_points');
     if (rtErr) {
       alert('Chyba pri ukladaní tém kôl: ' + rtErr.message);
       return;
@@ -445,7 +459,7 @@ async function loadQuizById(quizId) {
   if (roundIds.length) {
     const { data: rtData } = await supabase
       .from('round_topics')
-      .select('id, round_id, category_id, topic_order, max_points, custom_name')
+      .select('id, round_id, category_id, topic_order, max_points')
       .in('round_id', roundIds)
       .order('topic_order');
     roundTopicsData = rtData || [];
@@ -471,11 +485,11 @@ async function loadQuizById(quizId) {
       return {
         id: rt.id,
         categoryId: rt.category_id,
-        categoryName: rt.custom_name || (cat ? cat.name : 'Unknown'),
+        categoryName: cat ? cat.name : 'Unknown',
         categoryIcon: cat ? (cat.icon || '') : '❓',
         topicOrder: rt.topic_order,
         maxPoints: rt.max_points || 5,
-        customName: rt.custom_name || null
+        customName: null
       };
     });
     state.roundTopics[r.name] = topics;

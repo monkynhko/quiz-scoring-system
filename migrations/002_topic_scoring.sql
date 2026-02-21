@@ -29,8 +29,7 @@ create table if not exists round_topics (
   round_id uuid references rounds(id) on delete cascade,
   category_id uuid references categories(id) on delete set null,
   topic_order smallint not null default 1,
-  max_points numeric not null default 5,
-  custom_name text  -- for "Iná..." custom category names
+  max_points numeric not null default 5
 );
 
 -- topic_scores: score per team per round_topic
