@@ -42,6 +42,67 @@
     body.tv-mode .view-controls, body.tv-mode .controls-row, body.tv-mode #archive-list-container { display:none !important; }
     body.tv-mode #leaderboard { width:100vw; max-width:none; margin:0; }
     body.tv-mode.hide-cursor { cursor:none; }
+
+    /* Team name clickable */
+    .team-name-clickable {
+      cursor: pointer;
+      transition: color 0.2s, text-decoration 0.2s;
+    }
+    .team-name-clickable:hover {
+      color: #0ff;
+      text-decoration: underline;
+    }
+
+    /* Team detail panel */
+    .team-detail-panel {
+      background: #12091e;
+      border: 1px solid #333;
+      border-radius: 10px;
+      padding: 0 20px;
+      margin: 4px 0 8px 0;
+      overflow: hidden;
+      max-height: 0;
+      opacity: 0;
+      transition: max-height 0.4s ease, opacity 0.3s ease, padding 0.3s ease;
+    }
+    .team-detail-panel.open {
+      max-height: 600px;
+      opacity: 1;
+      padding: 16px 20px;
+    }
+    .team-detail-round {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 16px;
+      align-items: baseline;
+      margin-bottom: 6px;
+      font-size: 0.95em;
+      color: #ddd;
+    }
+    .team-detail-round .round-label {
+      font-weight: 700;
+      color: #fff;
+      min-width: 70px;
+    }
+    .team-detail-round .topic-score {
+      color: #ccc;
+    }
+    .team-detail-round .round-sum {
+      color: #ffd700;
+      font-weight: 700;
+      margin-left: auto;
+    }
+    .team-detail-best, .team-detail-worst {
+      margin-top: 10px;
+      font-size: 0.95em;
+    }
+    .team-detail-best { color: #0f0; }
+    .team-detail-worst { color: #f66; }
+
+    @media (max-width: 600px) {
+      .team-detail-panel.open { padding: 12px 10px; }
+      .team-detail-round { font-size: 0.85em; gap: 4px 8px; }
+    }
   </style>
 </head>
 <body>
@@ -621,7 +682,7 @@
       
       enrichedRounds.forEach(round => {
         let roundTotal = 0;
-        let bestTeam = '';
+        let bestTeams = [];
         let bestScore = -1;
         (teams || []).forEach(team => {
           let teamRoundScore = 0;
@@ -637,7 +698,9 @@
           roundTotal += teamRoundScore;
           if (teamRoundScore > bestScore) {
             bestScore = teamRoundScore;
-            bestTeam = team.name;
+            bestTeams = [team.name];
+          } else if (teamRoundScore === bestScore && bestScore > 0) {
+            bestTeams.push(team.name);
           }
           if (teamRoundScore > stats.bestRound.score) {
             stats.bestRound = { team: team.name, round: round.name, score: teamRoundScore };
@@ -650,7 +713,7 @@
         if (avgScore < stats.hardestRound.avgScore) {
           stats.hardestRound = { round: round.name, avgScore };
         }
-        roundWinners.push({ round: round.name, team: bestTeam, score: bestScore });
+        roundWinners.push({ round: round.name, teams: bestTeams, score: bestScore });
       });
       leaderboard.forEach(row => {
         if (row.total > stats.topScore.score) {
@@ -686,6 +749,46 @@
       return { leaderboard, rounds: enrichedRounds, stats, roundWinners, categoryStats, hasTopics };
     }
 
+    // Build expandable detail HTML for a single team row
+    function renderTeamDetailHtml(row, escapeHtml) {
+      const details = row.topicDetails || [];
+      if (!details.length || !details.some(d => d.topics && d.topics.length)) {
+        return '<div style="color:#888; font-size:0.9em;">Žiadne detailné dáta pre tento tím.</div>';
+      }
+      let h = '<div style="font-size:1.05em; font-weight:700; color:#fff; margin-bottom:10px;">📊 ' + escapeHtml(row.team) + ' — Detailné výsledky</div>';
+      // Per-round breakdown
+      details.forEach((rd, idx) => {
+        const topics = rd.topics || [];
+        const roundTotal = (row.roundScores && row.roundScores[idx]) || topics.reduce((s,t) => s + (t.score||0), 0);
+        h += '<div class="team-detail-round">';
+        h += '<span class="round-label">Kolo ' + (idx+1) + ':</span> ';
+        topics.forEach((t, ti) => {
+          const pct = t.max > 0 ? Math.round((t.score / t.max) * 100) : 0;
+          h += '<span class="topic-score">' + (t.icon || '') + ' ' + escapeHtml(t.name) + ' ' + t.score + '/' + t.max + '</span>';
+          if (ti < topics.length - 1) h += '<span style="color:#555;"> | </span>';
+        });
+        h += '<span class="round-sum">= ' + roundTotal + ' b.</span>';
+        h += '</div>';
+      });
+      // Best / worst topic
+      let allTopics = [];
+      details.forEach(rd => {
+        (rd.topics || []).forEach(t => {
+          if (t.max > 0) allTopics.push(t);
+        });
+      });
+      if (allTopics.length) {
+        allTopics.sort((a, b) => (b.score / b.max) - (a.score / a.max));
+        const best = allTopics[0];
+        const worst = allTopics[allTopics.length - 1];
+        const bestPct = Math.round((best.score / best.max) * 100);
+        const worstPct = Math.round((worst.score / worst.max) * 100);
+        h += '<div class="team-detail-best">📈 Najlepšia téma: ' + (best.icon||'') + ' ' + escapeHtml(best.name) + ' (' + best.score + '/' + best.max + ' = ' + bestPct + '%)</div>';
+        h += '<div class="team-detail-worst">📉 Najslabšia téma: ' + (worst.icon||'') + ' ' + escapeHtml(worst.name) + ' (' + worst.score + '/' + worst.max + ' = ' + worstPct + '%)</div>';
+      }
+      return h;
+    }
+
     function renderTable(data) {
       function escapeHtml(s) {
         return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -701,71 +804,31 @@
         '<span class="medal bronze" style="color:#CD7F32;" title="3. miesto">🥉</span>'
       ];
       
-      const hasTopics = data.hasTopics;
-      
       let html = `<div class="leaderboard-modern single-col">
         <div class="leaderboard-header">Leaderboard${quizTitle ? ' - ' + escapeHtml(quizTitle) : ''}</div>
         <div class="leaderboard-col" style="width:75vw; max-width:900px; margin:0 auto;">`;
       
-      if (hasTopics) {
-        // Two-row header: round names spanning topic columns, then topic labels
-        html += `<div class="leaderboard-row leaderboard-row-header" style="flex-wrap:nowrap;">
-            <div class="leaderboard-cell">&nbsp;</div>
-            <div class="leaderboard-cell">Tím</div>`;
-        (data.rounds || []).forEach((r, idx) => {
-          const topicCount = r.topics ? r.topics.length : 1;
-          html += `<div class="leaderboard-cell round-score-header" style="flex:${topicCount} 0 ${topicCount * 80}px; text-align:center; border-left:2px solid #555;">${idx + 1}. kolo</div>`;
-        });
-        html += `<div class='leaderboard-cell total-score-header'>Súčet</div></div>`;
-        
-        // Second header row: topic category names
-        html += `<div class="leaderboard-row leaderboard-row-header" style="flex-wrap:nowrap;">
-            <div class="leaderboard-cell">&nbsp;</div>
-            <div class="leaderboard-cell">&nbsp;</div>`;
-        (data.rounds || []).forEach(r => {
-          if (r.topics && r.topics.length) {
-            r.topics.forEach((t, tidx) => {
-              html += `<div class="leaderboard-cell round-score-header" style="font-size:0.75em; font-weight:normal; color:#aaa;${tidx === 0 ? ' border-left:2px solid #555;' : ''}">${t.categoryIcon || ''} ${escapeHtml(t.categoryName || '?')}</div>`;
-            });
-          } else {
-            html += `<div class="leaderboard-cell round-score-header" style="border-left:2px solid #555;">&nbsp;</div>`;
-          }
-        });
-        html += `<div class='leaderboard-cell'>&nbsp;</div></div>`;
-      } else {
-        // Legacy single-row header
-        html += `<div class="leaderboard-row leaderboard-row-header">
+      // Always use single-row header with round totals (5-column format)
+      html += `<div class="leaderboard-row leaderboard-row-header">
             <div class="leaderboard-cell">&nbsp;</div>
             <div class="leaderboard-cell">Tím</div>
             ${(data.rounds||[]).map((r, idx) => `<div class='leaderboard-cell round-score-header'>${idx+1}. kolo</div>`).join('')}
              <div class='leaderboard-cell total-score-header'>Súčet</div>
           </div>`;
-      }
       
-      // Data rows
+      // Data rows — always show roundScores (sum per round), team name is clickable
       data.leaderboard.forEach((row, i) => {
-        html += `<div class="leaderboard-row${i < 3 ? ' leaderboard-top' : ''}" style="flex-wrap:nowrap;">
+        const rowId = 'team-detail-' + i;
+        html += `<div class="leaderboard-row${i < 3 ? ' leaderboard-top' : ''}">
           <div class="leaderboard-cell">${i < 3 ? medals[i] : '<span class="position-number">'+(i+1)+'</span>'}</div>
-          <div class="leaderboard-cell">${escapeHtml(row.team)}</div>`;
-        
-        if (hasTopics && row.topicDetails) {
-          row.topicDetails.forEach((rd, ridx) => {
-            if (rd.topics && rd.topics.length) {
-              rd.topics.forEach((t, tidx) => {
-                html += `<div class='leaderboard-cell round-score-cell' style="${tidx === 0 ? 'border-left:2px solid #555;' : ''}">${t.score}</div>`;
-              });
-            } else {
-              html += `<div class='leaderboard-cell round-score-cell' style="border-left:2px solid #555;">${row.roundScores[ridx] || 0}</div>`;
-            }
-          });
-        } else {
-          (row.roundScores||[]).forEach(score => {
-            html += `<div class='leaderboard-cell round-score-cell'>${score}</div>`;
-          });
-        }
-        
+          <div class="leaderboard-cell"><span class="team-name-clickable" data-team-idx="${i}">${escapeHtml(row.team)}</span></div>`;
+        (row.roundScores||[]).forEach(score => {
+          html += `<div class='leaderboard-cell round-score-cell'>${score}</div>`;
+        });
         html += `<div class='leaderboard-cell total-score-cell'><b>${row.total}</b></div>
         </div>`;
+        // Hidden detail panel right after the row
+        html += `<div id="${rowId}" class="team-detail-panel">${renderTeamDetailHtml(row, escapeHtml)}</div>`;
       });
       html += '</div>';
       
@@ -775,16 +838,17 @@
           <h3 style="color:#ffd700; text-align:center; margin-bottom:12px;">🏆 Víťazi kôl</h3>
           <div style="display:flex; flex-wrap:wrap; gap:12px; justify-content:center;">`;
         data.roundWinners.forEach((rw, idx) => {
+          const winnerNames = (rw.teams || [rw.team]).map(t => escapeHtml(t));
           html += `<div style="background:#1a1333; border:1px solid #333; border-radius:10px; padding:10px 16px; text-align:center; min-width:140px;">
             <div style="font-size:0.85em; color:#aaa;">${idx + 1}. kolo</div>
-            <div style="font-weight:bold; color:#fff; margin:4px 0;">${escapeHtml(rw.team)}</div>
+            ${winnerNames.map(n => `<div style="font-weight:bold; color:#fff; margin:4px 0;">${n}</div>`).join('')}
             <div style="color:#ffd700; font-weight:bold;">${rw.score} b.</div>
           </div>`;
         });
         html += '</div></div>';
       }
       
-      // Category Statistics section
+      // Category Statistics section (simplified: overall average + best team only)
       if (data.categoryStats && Object.keys(data.categoryStats).length) {
         html += `<div style="margin-top:32px; width:75vw; max-width:900px;">
           <h3 style="color:#0ff; text-align:center; margin-bottom:16px;">📊 Štatistiky podľa kategórií</h3>
@@ -811,6 +875,20 @@
       
       html += '</div>';
       document.getElementById('leaderboard').innerHTML = html;
+
+      // Attach click handlers for team detail panels
+      document.querySelectorAll('.team-name-clickable').forEach(el => {
+        el.addEventListener('click', function () {
+          const idx = this.getAttribute('data-team-idx');
+          const panel = document.getElementById('team-detail-' + idx);
+          if (!panel) return;
+          const isOpen = panel.classList.contains('open');
+          // Close all open panels first
+          document.querySelectorAll('.team-detail-panel.open').forEach(p => p.classList.remove('open'));
+          // Toggle clicked panel
+          if (!isOpen) panel.classList.add('open');
+        });
+      });
     }
 
     function renderStatistics(data) {
