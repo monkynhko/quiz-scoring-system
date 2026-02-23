@@ -1100,12 +1100,12 @@
     // - Reuses existing renderTable() / renderLeagueTable()
     // - Smooth GPU-accelerated translateY scroll
     // - Pauses 4s at top/bottom, then reverses direction
-    // - Auto-refresh data every 30s
+    // - Auto-refresh data every 20s
     // - Trigger: ?projector=1
     // --------------------------
     let projectorRAF = null;
     let projectorRefreshInterval = null;
-    const PROJECTOR_REFRESH_INTERVAL = 30000;
+    const PROJECTOR_REFRESH_INTERVAL = 20000;
     const PROJECTOR_SCROLL_SPEED = 1.0; // px per frame at ~60fps
     const PROJECTOR_PAUSE_DURATION = 4000; // ms pause at top/bottom
 

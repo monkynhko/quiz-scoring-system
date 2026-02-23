@@ -301,6 +301,7 @@ section h2 {
 
 #scoreboardTable tr:nth-child(odd) td {
     color: #fff;
+    background: var(--background-color);
 }
 
 .score-input {
@@ -310,28 +311,34 @@ section h2 {
 
 /* Enhanced styles for leaderboard and statistics */
 #leaderboardDisplay table {
-    background: rgba(255,255,255,0.08);
+    background: rgba(10, 10, 46, 0.9);
     border-radius: 8px;
     border-collapse: separate;
     border-spacing: 0;
     overflow: hidden;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    box-shadow: 0 2px 12px rgba(255, 0, 255, 0.15);
+    width: 100%;
 }
 #leaderboardDisplay th, #leaderboardDisplay td {
-    border-bottom: 1px solid #000000;
-    color: #222;
-    background: rgba(255,255,255,0.85);
-    font-weight: 600;
+    border-bottom: 1px solid rgba(255, 0, 255, 0.2);
+    color: #fff;
+    background: transparent;
+    font-weight: 500;
+    padding: 8px 12px;
 }
 #leaderboardDisplay th {
-    background: #000000;
-    color: #fff;
-    font-size: 1.1em;
+    background: rgba(255, 0, 255, 0.15);
+    color: #ffd700;
+    font-size: 1.05em;
+    font-weight: 700;
 }
 #leaderboardDisplay tr.winner td {
-    background: #ffe066;
-    color: #222;
+    background: rgba(255, 215, 0, 0.15);
+    color: #ffd700;
     font-weight: bold;
+}
+#leaderboardDisplay tr:hover td {
+    background: rgba(255, 0, 255, 0.08);
 }
 
 /* Center statistics vertically in leaderboard tab */
@@ -344,20 +351,31 @@ section h2 {
 }
 
 .stats-grid .stat-card {
-    background: #fffbe6;
-    border: 2px solid #000000;
-    color: #222;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    font-weight: 600;
+    background: rgba(10, 10, 46, 0.9);
+    border: 1px solid rgba(255, 0, 255, 0.3);
+    color: #fff;
+    box-shadow: 0 2px 12px rgba(255, 0, 255, 0.1);
+    font-weight: 500;
+    border-radius: 10px;
+    padding: 16px;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.stats-grid .stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(255, 0, 255, 0.25);
 }
 .stats-grid .stat-card h3 {
     color: #ff00ff;
-    font-size: 1.1em;
+    font-size: 1.05em;
     margin-bottom: 8px;
 }
+.stats-grid .stat-card div {
+    color: #e0c0ff;
+    font-size: 1em;
+}
 .stats-grid .stat-card p {
-    color: #222;
-    font-size: 1.1em;
+    color: #e0c0ff;
+    font-size: 1em;
     margin: 0;
 }
 
@@ -450,4 +468,42 @@ section h2 {
 }
 #scoreboardTable table {
     border-collapse: collapse;
+}
+
+/* Collapsible sections */
+.section-header-toggle {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    user-select: none;
+}
+.section-header-toggle:hover {
+    color: #ff00ff;
+}
+.section-header-toggle .toggle-icon {
+    font-size: 0.8em;
+    transition: transform 0.3s;
+    margin-left: 8px;
+}
+.section-header-toggle .toggle-icon.collapsed {
+    transform: rotate(-90deg);
+}
+.section-content {
+    overflow: hidden;
+    transition: max-height 0.4s ease, opacity 0.3s ease;
+    max-height: 2000px;
+    opacity: 1;
+}
+.section-content.collapsed {
+    max-height: 0;
+    opacity: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+.section-badge {
+    font-size: 0.7em;
+    color: #aaa;
+    font-weight: normal;
+    margin-left: 8px;
 }

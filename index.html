@@ -28,28 +28,38 @@
                 </div>
 
                 <section id="teamsSection" class="neon-box">
-                    <h2>Teams</h2>
-                    <div class="team-controls">
-                        <textarea id="teamName" placeholder="Enter team names (one per line)" class="neon-input" rows="5"></textarea>
-                        <button id="addTeam" class="neon-button">Add Teams</button>
+                    <h2 class="section-header-toggle" data-target="teamsContent">
+                        Teams<span class="section-badge" id="teamsBadge"></span>
+                        <span class="toggle-icon">▼</span>
+                    </h2>
+                    <div id="teamsContent" class="section-content">
+                        <div class="team-controls">
+                            <textarea id="teamName" placeholder="Enter team names (one per line)" class="neon-input" rows="5"></textarea>
+                            <button id="addTeam" class="neon-button">Add Teams</button>
+                        </div>
+                        <div id="teamsList"></div>
                     </div>
-                    <div id="teamsList"></div>
                 </section>
 
                 <section id="roundsSection" class="neon-box">
-                    <h2>Rounds</h2>
-                    <div class="round-controls">
-                        <input type="text" id="roundName" placeholder="Round name" class="neon-input">
-                        <button id="addRound" class="neon-button">Add Round</button>
+                    <h2 class="section-header-toggle" data-target="roundsContent">
+                        Rounds<span class="section-badge" id="roundsBadge"></span>
+                        <span class="toggle-icon">▼</span>
+                    </h2>
+                    <div id="roundsContent" class="section-content">
+                        <div class="round-controls">
+                            <input type="text" id="roundName" placeholder="Round name" class="neon-input">
+                            <button id="addRound" class="neon-button">Add Round</button>
+                        </div>
+                        <div id="roundsList"></div>
                     </div>
-                    <div id="roundsList"></div>
                 </section>
 
                 <section id="scoreboardSection" class="neon-box">
                     <h2>Scoreboard</h2>
                     <div id="scoreboardTable"></div>
                     <div style="display: flex; gap: 10px; margin-top: 16px;">
-                        <button id="sortScoreboard" class="neon-button">Sort by Score</button>
+                        <button id="sortScoreboard" class="neon-button">Sort A-Z</button>
                         <button id="leaderboardScrollBtn" class="neon-button">Leaderboard</button>
                     </div>
                 </section>
@@ -64,7 +74,7 @@
                             <div id="leaderboardDisplay"></div>
                         </div>
                         <div style="flex: 1 1 350px; min-width: 300px;">
-                            <h2>Kvízové Štatistiky</h2>
+                            <h2 style="color:#ffd700;">📊 Kvízové Štatistiky</h2>
                             <div id="quizStats" class="stats-grid">
                                 <div class="stat-card">
                                     <h3>Top Score</h3>
