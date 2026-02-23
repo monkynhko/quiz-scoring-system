@@ -14,6 +14,7 @@
             <nav class="tab-navigation">
                 <button class="tab-button active" data-tab="scoring">Scoring</button>
                 <button class="tab-button" data-tab="leaderboard">Leaderboard</button>
+                <button class="tab-button" data-tab="submissions">📸 Submissions</button>
             </nav>
         </header>
 
@@ -97,8 +98,38 @@
                     </div>
                 </section>
             </div>
+
+            <!-- Submissions Tab -->
+            <div id="submissionsTab" class="tab-content">
+                <section class="neon-box">
+                    <h2>📸 Odovzdané hárky</h2>
+                    <div class="submissions-controls">
+                        <select id="submissionsRoundFilter" class="neon-input">
+                            <option value="">Všetky kolá</option>
+                        </select>
+                        <select id="submissionsStatusFilter" class="neon-input">
+                            <option value="">Všetky statusy</option>
+                            <option value="pending">⏳ Pending</option>
+                            <option value="reviewed">✅ Reviewed</option>
+                            <option value="rejected">❌ Rejected</option>
+                        </select>
+                    </div>
+                    <div id="submissionsList" class="submissions-grid"></div>
+                </section>
+            </div>
         </main>
     </div>
+
+    <!-- Submission Detail Modal -->
+    <div id="submissionModal" class="submission-modal-overlay" style="display:none;">
+        <div class="submission-modal">
+            <button id="closeSubmissionModal" class="submission-modal-close">&times;</button>
+            <img id="submissionModalImg" class="submission-modal-img" alt="Odpoveďový hárok">
+            <div id="submissionModalInfo" class="submission-modal-info"></div>
+            <div id="submissionModalActions" class="submission-modal-actions"></div>
+        </div>
+    </div>
+
     <!-- Optional runtime config generated from .env or CI: defines window.SUPABASE_URL / window.SUPABASE_ANON_KEY -->
     <script src="config.js"></script>
     <script src="app.js"></script>
