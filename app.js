@@ -728,7 +728,7 @@ function addRound() {
 }
 
 // Show modal for selecting 2 topics (categories) for a round
-function showTopicSelectionModal(roundName, onConfirm) {
+function showTopicSelectionModal(roundName, onConfirm, existingTopics) {
   const overlay = document.createElement('div');
   overlay.style = 'position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:9999;';
   const box = document.createElement('div');
@@ -773,6 +773,25 @@ function showTopicSelectionModal(roundName, onConfirm) {
       customInput.style.display = sel.value === '__custom__' ? '' : 'none';
     });
   });
+
+  // Pre-fill with existing topics if provided (edit mode)
+  if (existingTopics && existingTopics.length) {
+    [1, 2].forEach(n => {
+      const t = existingTopics[n - 1];
+      if (!t) return;
+      const sel = box.querySelector(`#topicCat${n}`);
+      const customInput = box.querySelector(`#topicCustom${n}`);
+      const maxInput = box.querySelector(`#topicMax${n}`);
+      if (t.categoryId && sel) {
+        sel.value = t.categoryId;
+      } else if (t.customName) {
+        sel.value = '__custom__';
+        customInput.value = t.customName;
+        customInput.style.display = '';
+      }
+      if (maxInput && t.maxPoints) maxInput.value = t.maxPoints;
+    });
+  }
   
   box.querySelector('#cancelTopicModal').onclick = () => overlay.remove();
   box.querySelector('#confirmTopicModal').onclick = () => {
@@ -815,6 +834,8 @@ function showTopicSelectionModal(roundName, onConfirm) {
 
 function updateTeamsList() {
   elements.teamsList.innerHTML = '';
+  const badge = document.getElementById('teamsBadge');
+  if (badge) badge.textContent = state.teams.length ? '(' + state.teams.length + ' tímov)' : '';
   state.teams.forEach(team => {
     const teamDiv = document.createElement('div');
     teamDiv.className = 'team-item';
@@ -839,17 +860,23 @@ window.removeTeam = function(teamName) {
 
 function updateRoundsList() {
   elements.roundsList.innerHTML = '';
+  const badge = document.getElementById('roundsBadge');
+  if (badge) badge.textContent = state.rounds.length ? '(' + state.rounds.length + ' kôl)' : '';
   state.rounds.forEach(round => {
     const roundDiv = document.createElement('div');
     roundDiv.className = 'team-item round-item-card';
     const topics = round.topics || state.roundTopics[round.name] || [];
     const topicLabels = topics.map(t => `${t.categoryIcon || ''} ${t.customName || t.categoryName || '?'} (max ${t.maxPoints || 5})`).join(' | ');
+    const safeName = round.name.replace(/'/g, "\\'");
     roundDiv.innerHTML = `
-      <div>
-        <strong>${round.name}</strong>
-        <div style="font-size:0.85em; color:#aaa; margin-top:2px;">${topicLabels || 'Žiadne témy'}</div>
+      <div style="flex:1;">
+        <strong style="color:#fff;">${round.name}</strong>
+        <div style="font-size:0.9em; color:#e0c0ff; margin-top:4px; font-weight:500;">${topicLabels || '<span style="color:#666;">Žiadne témy</span>'}</div>
       </div>
-      <button onclick="removeRound('${round.name}')" class="neon-button">Remove</button>
+      <div style="display:flex; gap:6px;">
+        <button onclick="editRound('${safeName}')" class="neon-button" style="background:#2196F3; font-size:0.85em;">Edit</button>
+        <button onclick="removeRound('${safeName}')" class="neon-button" style="background:#e53935; font-size:0.85em;">Remove</button>
+      </div>
     `;
     elements.roundsList.appendChild(roundDiv);
   });
@@ -873,6 +900,36 @@ window.removeRound = function(roundName) {
     updateScoreboard();
     updateLeaderboard();
   }
+};
+
+window.editRound = function(roundName) {
+  if (!state.isAdmin) return;
+  const round = state.rounds.find(r => r.name === roundName);
+  if (!round) return;
+  const currentTopics = round.topics || state.roundTopics[roundName] || [];
+  showTopicSelectionModal(roundName, (topic1, topic2) => {
+    const newTopics = [topic1, topic2];
+    round.topics = newTopics;
+    state.roundTopics[roundName] = newTopics;
+    // Re-initialize topic scores for all teams with new topics
+    state.teams.forEach(team => {
+      if (!state.topicScores[team]) state.topicScores[team] = {};
+      // Remove old topic scores for this round
+      Object.keys(state.topicScores[team]).forEach(key => {
+        if (key.startsWith(roundName + '::')) delete state.topicScores[team][key];
+      });
+      // Add new topic scores (init to 0)
+      newTopics.forEach((t, idx) => {
+        const key = roundName + '::' + (idx + 1);
+        state.topicScores[team][key] = 0;
+      });
+      // Reset legacy flat score
+      if (state.scores[team]) state.scores[team][roundName] = 0;
+    });
+    updateRoundsList();
+    updateScoreboard();
+    updateLeaderboard();
+  }, currentTopics);
 };
 
 function updateScoreboard() {
@@ -1196,6 +1253,30 @@ document.addEventListener('DOMContentLoaded', function() {
       window.open('leaderboard.html', '_blank');
     };
   }
+
+  // Sort A-Z button
+  const sortBtn = document.getElementById('sortScoreboard');
+  if (sortBtn) {
+    sortBtn.onclick = () => {
+      state.teams.sort((a, b) => a.localeCompare(b, 'sk'));
+      updateTeamsList();
+      updateScoreboard();
+      updateLeaderboard();
+    };
+  }
+
+  // Collapsible section toggle
+  document.querySelectorAll('.section-header-toggle').forEach(header => {
+    header.addEventListener('click', function() {
+      const targetId = this.dataset.target;
+      const content = document.getElementById(targetId);
+      const icon = this.querySelector('.toggle-icon');
+      if (!content) return;
+      content.classList.toggle('collapsed');
+      if (icon) icon.classList.toggle('collapsed');
+    });
+  });
+
   renderAuthButtons(); // <-- pridaj sem, aby sa zobrazilo vždy
 });
 
