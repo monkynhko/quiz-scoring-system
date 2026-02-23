@@ -507,10 +507,15 @@ async function loadQuizById(quizId) {
     topicScoresData = tsData || [];
   }
   
-  // 6. Legacy Scores (backward compat)
-  const { data: scores } = await supabase
-    .from('scores')
-    .select('team_id, round_id, score');
+  // 6. Legacy Scores (backward compat – filtered to this quiz's rounds)
+  let scores = [];
+  if (roundIds.length) {
+    const { data: scData } = await supabase
+      .from('scores')
+      .select('team_id, round_id, score')
+      .in('round_id', roundIds);
+    scores = scData || [];
+  }
   
   // Map legacy scores
   state.scores = {};
@@ -576,11 +581,17 @@ async function fetchLatestLeaderboard() {
     .select('id, name, round_order')
     .eq('quiz_id', quiz.id)
     .order('round_order');
-  const { data: scores } = await supabase
-    .from('scores')
-    .select('team_id, round_id, score');
+  const roundIds = (rounds || []).map(r => r.id);
+  let scores = [];
+  if (roundIds.length) {
+    const { data: scData } = await supabase
+      .from('scores')
+      .select('team_id, round_id, score')
+      .in('round_id', roundIds);
+    scores = scData || [];
+  }
   // Spočítaj total per team
-  const leaderboard = teams.map(team => {
+  const leaderboard = (teams || []).map(team => {
     let total = 0;
     rounds.forEach(round => {
       const s = scores.find(

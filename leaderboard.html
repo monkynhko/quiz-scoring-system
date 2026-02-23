@@ -2,6 +2,7 @@
 <html lang="sk">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Quiz Leaderboard</title>
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js"></script>
@@ -33,7 +34,7 @@
       transition: max-height 0.4s ease, opacity 0.3s ease, padding 0.3s ease;
     }
     .team-detail-panel.open {
-      max-height: 600px;
+      max-height: 2000px;
       opacity: 1;
       padding: 16px 20px;
     }
@@ -127,6 +128,39 @@
     }
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+    // Shared HTML escape utility
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // Supabase error checker — logs warning and returns data (or empty array/null)
+    function checkSupabaseError(label, { data, error }) {
+      if (error) console.warn('Supabase error [' + label + ']:', error.message || error);
+      return data;
+    }
+
+    // Batched .in() helper — splits large arrays into chunks to avoid Supabase URL length limits
+    async function batchedIn(table, selectCols, column, values, extra) {
+      const BATCH = 300;
+      if (!values || !values.length) return [];
+      if (values.length <= BATCH) {
+        let q = supabase.from(table).select(selectCols).in(column, values);
+        if (extra) q = extra(q);
+        const { data, error } = await q;
+        if (error) console.warn('batchedIn error [' + table + ']:', error.message || error);
+        return data || [];
+      }
+      let all = [];
+      for (let i = 0; i < values.length; i += BATCH) {
+        const chunk = values.slice(i, i + BATCH);
+        let q = supabase.from(table).select(selectCols).in(column, chunk);
+        if (extra) q = extra(q);
+        const { data, error } = await q;
+        if (error) console.warn('batchedIn error [' + table + '] batch ' + i + ':', error.message || error);
+        if (data) all = all.concat(data);
+      }
+      return all;
+    }
     // If placeholders are present, show a clear message and skip auto-loading
     let SKIP_AUTO_LOAD = false;
     if (String(SUPABASE_URL).includes('<') || String(SUPABASE_ANON_KEY).includes('<')) {
@@ -309,6 +343,9 @@
     }
 
     async function renderLeaderboard(quizIdOverride) {
+      // Show loading indicator
+      const lb = document.getElementById('leaderboard');
+      if (lb) lb.innerHTML = '<div style="text-align:center; padding:48px; color:#0ff; font-size:1.2em;">⏳ Načítavam dáta…</div>';
       let data;
       try {
         let idToUse = quizIdOverride || currentQuizId;
@@ -375,46 +412,31 @@
     // --- League aggregation: sum points by normalized team name across quizzes in the current season ---
     async function fetchLeague() {
       // determine quizzes that belong to the selected season
-      let { data: seasonQuizzes } = await supabase
+      let seasonQuizzes = checkSupabaseError('quizzes', await supabase
         .from('quizzes')
         .select('id, created_at')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false }));
       if (currentSeasonId) {
-        const res = await supabase.from('quizzes').select('id, created_at').eq('season_id', currentSeasonId).order('created_at', { ascending: false });
-        seasonQuizzes = res.data;
+        seasonQuizzes = checkSupabaseError('quizzes:season', await supabase.from('quizzes').select('id, created_at').eq('season_id', currentSeasonId).order('created_at', { ascending: false }));
       }
       const quizIds = (seasonQuizzes || []).map(q => q.id).filter(Boolean);
       if (!quizIds.length) return { league: [], leagueCategoryStats: {} };
 
       // fetch teams that appeared in these quizzes
-      const { data: teams } = await supabase
-        .from('teams')
-        .select('id, name, quiz_id')
-        .in('quiz_id', quizIds);
+      const teams = await batchedIn('teams', 'id, name, quiz_id', 'quiz_id', quizIds);
 
       // fetch rounds for those quizzes
-      const { data: rounds } = await supabase
-        .from('rounds')
-        .select('id, quiz_id')
-        .in('quiz_id', quizIds);
+      const rounds = await batchedIn('rounds', 'id, quiz_id', 'quiz_id', quizIds);
       const roundIds = (rounds || []).map(r => r.id).filter(Boolean);
       
       // Fetch round_topics with category info
       let roundTopicsData = [];
       let topicScoresData = [];
       if (roundIds.length) {
-        const { data: rtData } = await supabase
-          .from('round_topics')
-          .select('id, round_id, category_id, max_points')
-          .in('round_id', roundIds);
-        roundTopicsData = rtData || [];
+        roundTopicsData = await batchedIn('round_topics', 'id, round_id, category_id, max_points', 'round_id', roundIds);
         if (roundTopicsData.length) {
           const rtIds = roundTopicsData.map(rt => rt.id);
-          const { data: tsData } = await supabase
-            .from('topic_scores')
-            .select('team_id, round_topic_id, score')
-            .in('round_topic_id', rtIds);
-          topicScoresData = tsData || [];
+          topicScoresData = await batchedIn('topic_scores', 'team_id, round_topic_id, score', 'round_topic_id', rtIds);
         }
       }
 
@@ -422,10 +444,7 @@
       const categoryIds = [...new Set(roundTopicsData.filter(rt => rt.category_id).map(rt => rt.category_id))];
       let categoriesMap = {};
       if (categoryIds.length) {
-        const { data: cats } = await supabase
-          .from('categories')
-          .select('id, name, icon')
-          .in('id', categoryIds);
+        const cats = await batchedIn('categories', 'id, name, icon', 'id', categoryIds);
         (cats || []).forEach(c => { categoriesMap[c.id] = c; });
       }
 
@@ -434,10 +453,7 @@
       roundTopicsData.forEach(rt => { roundTopicById[rt.id] = rt; });
       
       // Also fetch legacy scores
-      const { data: scores } = roundIds.length ? await supabase
-        .from('scores')
-        .select('team_id, score, round_id')
-        .in('round_id', roundIds) : { data: [] };
+      const scores = roundIds.length ? await batchedIn('scores', 'team_id, score, round_id', 'round_id', roundIds) : [];
 
       const teamById = {};
       (teams || []).forEach(t => { teamById[t.id] = t; });
@@ -466,7 +482,7 @@
         const original = (team.name || 'Unknown').trim();
         const norm = normalizeTeamName(original) || original.toLowerCase();
         if (!agg[norm]) agg[norm] = { total: 0, appearancesSet: new Set(), nameCounts: {}, firstSeen: original, quizTotals: {}, categoryScores: {} };
-        const scoreVal = Number(ts.score) || 0;
+        const scoreVal = Math.max(0, Number(ts.score) || 0);
         agg[norm].total += scoreVal;
         agg[norm].appearancesSet.add(team.quiz_id);
         agg[norm].nameCounts[original] = (agg[norm].nameCounts[original] || 0) + 1;
@@ -511,7 +527,7 @@
         const original = (team.name || 'Unknown').trim();
         const norm = normalizeTeamName(original) || original.toLowerCase();
         if (!agg[norm]) agg[norm] = { total: 0, appearancesSet: new Set(), nameCounts: {}, firstSeen: original, quizTotals: {}, categoryScores: {} };
-        const scoreVal = Number(s.score) || 0;
+        const scoreVal = Math.max(0, Number(s.score) || 0);
         agg[norm].total += scoreVal;
         agg[norm].appearancesSet.add(team.quiz_id);
         agg[norm].nameCounts[original] = (agg[norm].nameCounts[original] || 0) + 1;
@@ -523,7 +539,7 @@
       });
 
       // Sort quizzes by date (recent first) for momentum calculation
-      const sortedQuizzes = (seasonQuizzes || []).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      const sortedQuizzes = [...(seasonQuizzes || [])].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       
       const league = Object.keys(agg).map(norm => {
         const entry = agg[norm];
@@ -531,7 +547,7 @@
         names.sort((a, b) => entry.nameCounts[b] - entry.nameCounts[a]);
         const displayName = names[0] || entry.firstSeen || norm;
         
-        // Momentum: compare average of last 3 quizzes vs previous quizzes
+        // Momentum: compare latest quiz score vs average of all previous quizzes
         let momentum = null; // null = not enough data
         const quizTotals = entry.quizTotals;
         const quizScoresByDate = sortedQuizzes
@@ -539,12 +555,11 @@
           .map(q => quizTotals[q.id]);
         
         if (quizScoresByDate.length >= 2) {
-          const recent = quizScoresByDate.slice(0, Math.min(3, quizScoresByDate.length));
-          const older = quizScoresByDate.slice(Math.min(3, quizScoresByDate.length));
-          const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
-          const olderAvg = older.length > 0 ? older.reduce((a, b) => a + b, 0) / older.length : recentAvg;
-          if (recentAvg > olderAvg * 1.05) momentum = 'up';
-          else if (recentAvg < olderAvg * 0.95) momentum = 'down';
+          const latest = quizScoresByDate[0];
+          const previous = quizScoresByDate.slice(1);
+          const previousAvg = previous.reduce((a, b) => a + b, 0) / previous.length;
+          if (latest > previousAvg * 1.05) momentum = 'up';
+          else if (latest < previousAvg * 0.95) momentum = 'down';
           else momentum = 'stable';
         }
         
@@ -555,7 +570,7 @@
     }
 
     // Build expandable detail HTML for a team in league view
-    function renderLeagueTeamDetailHtml(row, escapeHtml) {
+    function renderLeagueTeamDetailHtml(row) {
       const cats = row.categoryScores || {};
       const catEntries = Object.entries(cats);
 
@@ -606,9 +621,6 @@
     }
 
     function renderLeagueTable(data) {
-      function escapeHtml(s) {
-        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-      }
       const list = (data && data.league) || [];
       if (!list.length) {
         document.getElementById('leaderboard').innerHTML = '<p>Žiadne ligové dáta.</p>';
@@ -642,7 +654,7 @@
           <div class='leaderboard-cell total-score-cell'><b>${row.total}</b></div>
         </div>`;
         // Detail panel
-        html += `<div id="${rowId}" class="team-detail-panel">${renderLeagueTeamDetailHtml(row, escapeHtml)}</div>`;
+        html += `<div id="${rowId}" class="team-detail-panel">${renderLeagueTeamDetailHtml(row)}</div>`;
       });
       html += '</div>';
 
@@ -695,36 +707,28 @@
     }
 
     async function fetchLeaderboardForQuiz(quizId) {
-      const { data: teams, error: teamsError } = await supabase
+      const teams = checkSupabaseError('teams:quiz', await supabase
         .from('teams')
         .select('id, name')
-        .eq('quiz_id', quizId);
-      const { data: rounds, error: roundsError } = await supabase
+        .eq('quiz_id', quizId));
+      const rounds = checkSupabaseError('rounds:quiz', await supabase
         .from('rounds')
         .select('id, name, round_order')
         .eq('quiz_id', quizId)
-        .order('round_order');
+        .order('round_order'));
       
       // Fetch round_topics for topic-based scoring
       const roundIds = (rounds || []).map(r => r.id);
       let roundTopicsData = [];
       if (roundIds.length) {
-        const { data: rtData } = await supabase
-          .from('round_topics')
-          .select('id, round_id, category_id, topic_order, max_points')
-          .in('round_id', roundIds)
-          .order('topic_order');
-        roundTopicsData = rtData || [];
+        roundTopicsData = await batchedIn('round_topics', 'id, round_id, category_id, topic_order, max_points', 'round_id', roundIds, q => q.order('topic_order'));
       }
       
       // Fetch categories for names/icons
       const categoryIds = [...new Set(roundTopicsData.filter(rt => rt.category_id).map(rt => rt.category_id))];
       let categoriesMap = {};
       if (categoryIds.length) {
-        const { data: cats } = await supabase
-          .from('categories')
-          .select('id, name, icon')
-          .in('id', categoryIds);
+        const cats = await batchedIn('categories', 'id, name, icon', 'id', categoryIds);
         (cats || []).forEach(c => { categoriesMap[c.id] = c; });
       }
       
@@ -734,17 +738,14 @@
       const rtIds = roundTopicsData.map(rt => rt.id);
       let topicScoresData = [];
       if (rtIds.length) {
-        const { data: tsData } = await supabase
-          .from('topic_scores')
-          .select('team_id, round_topic_id, score')
-          .in('round_topic_id', rtIds);
-        topicScoresData = tsData || [];
+        topicScoresData = await batchedIn('topic_scores', 'team_id, round_topic_id, score', 'round_topic_id', rtIds);
       }
       
-      // Also fetch legacy scores for backward compat
-      const { data: scores, error: scoresError } = await supabase
-        .from('scores')
-        .select('team_id, round_id, score');
+      // Also fetch legacy scores for backward compat (filtered to this quiz's rounds)
+      let scores = [];
+      if (roundIds.length) {
+        scores = await batchedIn('scores', 'team_id, round_id, score', 'round_id', roundIds);
+      }
       
       // Build enriched round info with topics
       const enrichedRounds = (rounds || []).map(round => {
@@ -767,6 +768,12 @@
       });
       
       // Build leaderboard data
+      // Build lookup maps for O(1) access instead of O(n) .find()
+      const topicScoreMap = {}; // "teamId|rtId" -> score row
+      topicScoresData.forEach(ts => { topicScoreMap[ts.team_id + '|' + ts.round_topic_id] = ts; });
+      const legacyScoreMap = {}; // "teamId|roundId" -> score row
+      (scores || []).forEach(s => { legacyScoreMap[s.team_id + '|' + s.round_id] = s; });
+
       const leaderboard = (teams || []).map(team => {
         let total = 0;
         let roundScores = [];
@@ -776,8 +783,8 @@
           if (hasTopics && round.topics.length) {
             let roundTotal = 0;
             const topicScoresForRound = round.topics.map(topic => {
-              const ts = topicScoresData.find(ts => ts.team_id === team.id && ts.round_topic_id === topic.id);
-              const score = ts ? Number(ts.score) : 0;
+              const ts = topicScoreMap[team.id + '|' + topic.id];
+              const score = ts ? Math.max(0, Number(ts.score)) : 0;
               roundTotal += score;
               return {
                 name: topic.categoryName,
@@ -791,8 +798,8 @@
             topicDetails.push({ roundName: round.name, topics: topicScoresForRound });
           } else {
             // Legacy fallback
-            const s = (scores || []).find(sc => sc.team_id === team.id && sc.round_id === round.id);
-            const score = s ? Number(s.score) : 0;
+            const s = legacyScoreMap[team.id + '|' + round.id];
+            const score = s ? Math.max(0, Number(s.score)) : 0;
             total += score;
             roundScores.push(score);
             topicDetails.push({ roundName: round.name, topics: [] });
@@ -821,12 +828,12 @@
           let teamRoundScore = 0;
           if (hasTopics && round.topics.length) {
             round.topics.forEach(topic => {
-              const ts = topicScoresData.find(ts => ts.team_id === team.id && ts.round_topic_id === topic.id);
-              teamRoundScore += ts ? Number(ts.score) : 0;
+              const ts = topicScoreMap[team.id + '|' + topic.id];
+              teamRoundScore += ts ? Math.max(0, Number(ts.score)) : 0;
             });
           } else {
-            const s = (scores || []).find(sc => sc.team_id === team.id && sc.round_id === round.id);
-            teamRoundScore = s ? Number(s.score) : 0;
+            const s = legacyScoreMap[team.id + '|' + round.id];
+            teamRoundScore = s ? Math.max(0, Number(s.score)) : 0;
           }
           roundTotal += teamRoundScore;
           if (teamRoundScore > bestScore) {
@@ -865,8 +872,8 @@
             categoryStats[catName] = { icon: catIcon, totalScore: 0, maxPossible: 0, count: 0, teamScores: {} };
           }
           (teams || []).forEach(team => {
-            const ts = topicScoresData.find(ts => ts.team_id === team.id && ts.round_topic_id === rt.id);
-            const score = ts ? Number(ts.score) : 0;
+            const ts = topicScoreMap[team.id + '|' + rt.id];
+            const score = ts ? Math.max(0, Number(ts.score)) : 0;
             categoryStats[catName].totalScore += score;
             categoryStats[catName].maxPossible += (rt.max_points || 5);
             categoryStats[catName].count++;
@@ -883,7 +890,7 @@
     }
 
     // Build expandable detail HTML for a single team row
-    function renderTeamDetailHtml(row, escapeHtml) {
+    function renderTeamDetailHtml(row) {
       const details = row.topicDetails || [];
       if (!details.length || !details.some(d => d.topics && d.topics.length)) {
         return '<div style="color:#888; font-size:0.9em;">Žiadne detailné dáta pre tento tím.</div>';
@@ -924,9 +931,6 @@
     }
 
     function renderTable(data) {
-      function escapeHtml(s) {
-        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-      }
       const quizTitle = (data && data.quizTitle) || '';
       if (!data || !data.leaderboard) {
         document.getElementById('leaderboard').innerHTML = '<p>Žiadne dáta.</p>';
@@ -962,7 +966,7 @@
         html += `<div class='leaderboard-cell total-score-cell'><b>${row.total}</b></div>
         </div>`;
         // Hidden detail panel right after the row
-        html += `<div id="${rowId}" class="team-detail-panel">${renderTeamDetailHtml(row, escapeHtml)}</div>`;
+        html += `<div id="${rowId}" class="team-detail-panel">${renderTeamDetailHtml(row)}</div>`;
       });
       html += '</div>';
       
