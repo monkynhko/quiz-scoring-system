@@ -538,3 +538,164 @@ section h2 {
     font-weight: normal;
     margin-left: 8px;
 }
+
+/* === Submissions Tab === */
+.submissions-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+.submissions-controls select {
+    flex: 1 1 160px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 0, 255, 0.3);
+    background: #1a1333;
+    color: #fff;
+    font-size: 0.95em;
+}
+.submissions-controls select:focus {
+    outline: none;
+    border-color: #0ff;
+}
+.submissions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+}
+.submission-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(20, 10, 40, 0.95);
+    border: 1px solid rgba(255, 0, 255, 0.2);
+    border-radius: 12px;
+    padding: 12px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.submission-card:hover {
+    border-color: rgba(0, 255, 255, 0.4);
+    box-shadow: 0 0 12px rgba(0, 255, 255, 0.1);
+}
+.submission-thumb {
+    flex-shrink: 0;
+    width: 72px;
+    height: 72px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #111;
+}
+.submission-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.submission-info {
+    flex: 1;
+    min-width: 0;
+}
+.submission-team {
+    font-weight: 700;
+    color: #fff;
+    font-size: 1.05em;
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.submission-detail {
+    color: #aaa;
+    font-size: 0.85em;
+}
+.submission-status {
+    font-size: 0.85em;
+    font-weight: 600;
+    margin-top: 2px;
+}
+.submission-status.status-pending { color: #ffd600; }
+.submission-status.status-reviewed { color: #00e676; }
+.submission-status.status-rejected { color: #ff5252; }
+.submission-actions {
+    flex-shrink: 0;
+}
+.submission-actions .neon-button {
+    font-size: 0.85em;
+    padding: 6px 14px;
+}
+
+/* Submission Modal */
+.submission-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+.submission-modal {
+    position: relative;
+    background: #1a1333;
+    border: 1px solid rgba(255, 0, 255, 0.3);
+    border-radius: 16px;
+    padding: 24px;
+    max-width: 700px;
+    width: 95%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 0 30px rgba(255, 0, 255, 0.2);
+}
+.submission-modal-close {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 1.8em;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+}
+.submission-modal-close:hover {
+    color: #ff5252;
+}
+.submission-modal-img {
+    width: 100%;
+    max-height: 50vh;
+    object-fit: contain;
+    border-radius: 10px;
+    margin-bottom: 16px;
+    background: #000;
+}
+.submission-modal-info {
+    color: #ddd;
+    font-size: 0.95em;
+    margin-bottom: 16px;
+}
+.submission-modal-info p {
+    margin: 4px 0;
+}
+.submission-modal-info strong {
+    color: #0ff;
+}
+.submission-modal-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+@media (max-width: 600px) {
+    .submissions-grid {
+        grid-template-columns: 1fr;
+    }
+    .submission-thumb {
+        width: 56px;
+        height: 56px;
+    }
+    .submission-modal {
+        padding: 16px;
+        border-radius: 12px;
+    }
+}

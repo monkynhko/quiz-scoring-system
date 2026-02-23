@@ -161,7 +161,16 @@ const elements = {
     easiestRound: document.getElementById('easiestRound'),
     hardestRound: document.getElementById('hardestRound'),
     bestRound: document.getElementById('bestRound')
-  }
+  },
+  // Submissions tab
+  submissionsList: document.getElementById('submissionsList'),
+  submissionsRoundFilter: document.getElementById('submissionsRoundFilter'),
+  submissionsStatusFilter: document.getElementById('submissionsStatusFilter'),
+  submissionModal: document.getElementById('submissionModal'),
+  submissionModalImg: document.getElementById('submissionModalImg'),
+  submissionModalInfo: document.getElementById('submissionModalInfo'),
+  submissionModalActions: document.getElementById('submissionModalActions'),
+  closeSubmissionModal: document.getElementById('closeSubmissionModal')
 };
 
 // === AUTENTIFIKÁCIA ADMINA ===
@@ -455,6 +464,10 @@ async function loadQuizById(quizId) {
   state.quizId = quiz.id;
   state.title = quiz.title;
   state.seasonId = quiz.season_id || null;
+  // Reset submissions round filter for new quiz
+  if (elements.submissionsRoundFilter) {
+    elements.submissionsRoundFilter.innerHTML = '<option value="">Všetky kolá</option>';
+  }
   // 2. Teams
   const { data: teams } = await supabase
     .from('teams')
@@ -1178,6 +1191,182 @@ function updateQuizStats() {
   if (bestRound) bestRound.textContent = `${bestName} (${best})`;
 }
 
+// === SUBMISSIONS (photo review) ===
+async function fetchSubmissions(quizId, roundId, status) {
+  if (mode !== 'supabase' || !quizId) return [];
+  let q = supabase
+    .from('answer_submissions')
+    .select('id, quiz_id, team_id, round_id, photo_url, photo_path, submitted_at, submitted_by, status, admin_notes, score_override, reviewed_at, reviewed_by')
+    .eq('quiz_id', quizId)
+    .order('submitted_at', { ascending: false });
+  if (roundId) q = q.eq('round_id', roundId);
+  if (status) q = q.eq('status', status);
+  const { data, error } = await q;
+  if (error) { console.error('fetchSubmissions error', error); return []; }
+  return data || [];
+}
+
+async function loadAndRenderSubmissions() {
+  if (!state.quizId) {
+    if (elements.submissionsList) elements.submissionsList.innerHTML = '<p style="color:#aaa;text-align:center;">Najprv načítaj kvíz.</p>';
+    return;
+  }
+  // Populate round filter if empty
+  if (elements.submissionsRoundFilter && elements.submissionsRoundFilter.options.length <= 1) {
+    const { data: rounds } = await supabase
+      .from('rounds')
+      .select('id, name, round_order')
+      .eq('quiz_id', state.quizId)
+      .order('round_order');
+    (rounds || []).forEach(r => {
+      const opt = document.createElement('option');
+      opt.value = r.id;
+      opt.textContent = r.name;
+      elements.submissionsRoundFilter.appendChild(opt);
+    });
+  }
+  const roundId = elements.submissionsRoundFilter ? elements.submissionsRoundFilter.value : '';
+  const statusVal = elements.submissionsStatusFilter ? elements.submissionsStatusFilter.value : '';
+  const submissions = await fetchSubmissions(state.quizId, roundId, statusVal);
+
+  // Need team & round names for display
+  const teamIds = [...new Set(submissions.map(s => s.team_id))];
+  const roundIds = [...new Set(submissions.map(s => s.round_id))];
+
+  let teamMap = {};
+  let roundMap = {};
+  if (teamIds.length) {
+    const { data: teams } = await supabase.from('teams').select('id, name').in('id', teamIds);
+    (teams || []).forEach(t => { teamMap[t.id] = t.name; });
+  }
+  if (roundIds.length) {
+    const { data: rounds } = await supabase.from('rounds').select('id, name').in('id', roundIds);
+    (rounds || []).forEach(r => { roundMap[r.id] = r.name; });
+  }
+
+  renderSubmissions(submissions, teamMap, roundMap);
+}
+
+function renderSubmissions(submissions, teamMap, roundMap) {
+  const container = elements.submissionsList;
+  if (!container) return;
+  if (!submissions.length) {
+    container.innerHTML = '<p style="color:#aaa;text-align:center;padding:24px;">Žiadne odovzdania.</p>';
+    return;
+  }
+  container.innerHTML = '';
+  submissions.forEach(sub => {
+    const card = document.createElement('div');
+    card.className = 'submission-card';
+    const statusIcon = sub.status === 'reviewed' ? '✅' : sub.status === 'rejected' ? '❌' : '⏳';
+    const statusClass = 'status-' + sub.status;
+    const time = sub.submitted_at ? new Date(sub.submitted_at).toLocaleTimeString('sk-SK', { hour: '2-digit', minute: '2-digit' }) : '';
+    const date = sub.submitted_at ? new Date(sub.submitted_at).toLocaleDateString('sk-SK') : '';
+    const teamName = escapeHtml(teamMap[sub.team_id] || sub.team_id);
+    const roundName = escapeHtml(roundMap[sub.round_id] || sub.round_id);
+
+    card.innerHTML = `
+      <div class="submission-thumb">
+        <img src="${escapeHtml(sub.photo_url)}" alt="Hárok" loading="lazy">
+      </div>
+      <div class="submission-info">
+        <div class="submission-team">${teamName}</div>
+        <div class="submission-detail">Kolo: ${roundName}</div>
+        <div class="submission-detail">${date} ${time}</div>
+        <div class="submission-status ${statusClass}">${statusIcon} ${escapeHtml(sub.status)}</div>
+      </div>
+      <div class="submission-actions">
+        <button class="neon-button submission-view-btn" data-id="${sub.id}">Zobraziť</button>
+      </div>
+    `;
+    container.appendChild(card);
+
+    // Store data on the card for modal
+    card.querySelector('.submission-view-btn').addEventListener('click', () => {
+      showSubmissionDetail(sub, teamMap, roundMap);
+    });
+  });
+}
+
+function showSubmissionDetail(sub, teamMap, roundMap) {
+  const modal = elements.submissionModal;
+  if (!modal) return;
+  elements.submissionModalImg.src = sub.photo_url;
+
+  const teamName = escapeHtml(teamMap[sub.team_id] || sub.team_id);
+  const roundName = escapeHtml(roundMap[sub.round_id] || sub.round_id);
+  const statusIcon = sub.status === 'reviewed' ? '✅' : sub.status === 'rejected' ? '❌' : '⏳';
+  const time = sub.submitted_at ? new Date(sub.submitted_at).toLocaleString('sk-SK') : '';
+
+  elements.submissionModalInfo.innerHTML = `
+    <p><strong>Tím:</strong> ${teamName}</p>
+    <p><strong>Kolo:</strong> ${roundName}</p>
+    <p><strong>Odoslané:</strong> ${time}</p>
+    <p><strong>Status:</strong> ${statusIcon} ${escapeHtml(sub.status)}</p>
+    ${sub.admin_notes ? '<p><strong>Poznámky:</strong> ' + escapeHtml(sub.admin_notes) + '</p>' : ''}
+    ${sub.score_override != null ? '<p><strong>Skóre:</strong> ' + escapeHtml(String(sub.score_override)) + '</p>' : ''}
+  `;
+
+  const actionsEl = elements.submissionModalActions;
+  actionsEl.innerHTML = '';
+
+  if (state.isAdmin) {
+    if (sub.status !== 'reviewed') {
+      const reviewBtn = document.createElement('button');
+      reviewBtn.className = 'neon-button';
+      reviewBtn.textContent = '✅ Schváliť';
+      reviewBtn.addEventListener('click', async () => {
+        await updateSubmissionStatus(sub.id, 'reviewed');
+        sub.status = 'reviewed';
+        modal.style.display = 'none';
+        await loadAndRenderSubmissions();
+      });
+      actionsEl.appendChild(reviewBtn);
+    }
+    if (sub.status !== 'rejected') {
+      const rejectBtn = document.createElement('button');
+      rejectBtn.className = 'neon-button';
+      rejectBtn.style.background = '#c62828';
+      rejectBtn.textContent = '❌ Zamietnuť';
+      rejectBtn.addEventListener('click', async () => {
+        await updateSubmissionStatus(sub.id, 'rejected');
+        sub.status = 'rejected';
+        modal.style.display = 'none';
+        await loadAndRenderSubmissions();
+      });
+      actionsEl.appendChild(rejectBtn);
+    }
+    if (sub.status !== 'pending') {
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'neon-button';
+      resetBtn.style.background = '#555';
+      resetBtn.textContent = '⏳ Reset na pending';
+      resetBtn.addEventListener('click', async () => {
+        await updateSubmissionStatus(sub.id, 'pending');
+        sub.status = 'pending';
+        modal.style.display = 'none';
+        await loadAndRenderSubmissions();
+      });
+      actionsEl.appendChild(resetBtn);
+    }
+  }
+
+  modal.style.display = 'flex';
+}
+
+async function updateSubmissionStatus(id, status) {
+  if (mode !== 'supabase') return;
+  if (!state.isAdmin) { alert('Iba admin môže meniť status.'); return; }
+  const userId = state.user ? state.user.id : null;
+  const { error } = await supabase
+    .from('answer_submissions')
+    .update({ status, reviewed_at: new Date().toISOString(), reviewed_by: userId })
+    .eq('id', id);
+  if (error) {
+    alert('Chyba pri zmene statusu: ' + error.message);
+  }
+}
+
 function switchTab(tab) {
   state.currentTab = tab;
   elements.tabButtons.forEach(button => {
@@ -1188,6 +1377,9 @@ function switchTab(tab) {
   });
   if (tab === 'leaderboard') {
     updateLeaderboard();
+  }
+  if (tab === 'submissions') {
+    loadAndRenderSubmissions();
   }
 }
 
@@ -1327,6 +1519,24 @@ document.addEventListener('DOMContentLoaded', function() {
       if (icon) icon.classList.toggle('collapsed');
     });
   });
+
+  // Submissions tab: filters + modal close
+  if (elements.submissionsRoundFilter) {
+    elements.submissionsRoundFilter.addEventListener('change', () => { loadAndRenderSubmissions(); });
+  }
+  if (elements.submissionsStatusFilter) {
+    elements.submissionsStatusFilter.addEventListener('change', () => { loadAndRenderSubmissions(); });
+  }
+  if (elements.closeSubmissionModal) {
+    elements.closeSubmissionModal.addEventListener('click', () => {
+      elements.submissionModal.style.display = 'none';
+    });
+  }
+  if (elements.submissionModal) {
+    elements.submissionModal.addEventListener('click', (e) => {
+      if (e.target === elements.submissionModal) elements.submissionModal.style.display = 'none';
+    });
+  }
 
   renderAuthButtons(); // <-- pridaj sem, aby sa zobrazilo vždy
 });

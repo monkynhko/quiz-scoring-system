@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Kvíz Factory — Odovzdanie hárku</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        /* Mobile-first overrides for submit page */
+        body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .submit-container {
+            max-width: 480px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 16px;
+        }
+        .submit-header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .submit-header h1 {
+            font-size: 1.6em;
+            color: #0ff;
+            text-shadow: 0 0 10px #0ff, 0 0 20px #0ff;
+            margin-bottom: 4px;
+        }
+        .submit-header p {
+            color: #aaa;
+            font-size: 0.95em;
+        }
+        .submit-card {
+            background: rgba(20, 10, 40, 0.95);
+            border: 1px solid rgba(255, 0, 255, 0.3);
+            border-radius: 16px;
+            padding: 24px 20px;
+            box-shadow: 0 0 20px rgba(255, 0, 255, 0.1);
+        }
+        .submit-field {
+            margin-bottom: 18px;
+        }
+        .submit-field label {
+            display: block;
+            color: #0ff;
+            font-weight: 700;
+            margin-bottom: 6px;
+            font-size: 0.95em;
+        }
+        .submit-field select {
+            width: 100%;
+            padding: 12px 14px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 0, 255, 0.3);
+            background: #1a1333;
+            color: #fff;
+            font-size: 1em;
+            appearance: none;
+            -webkit-appearance: none;
+        }
+        .submit-field select:focus {
+            outline: none;
+            border-color: #0ff;
+            box-shadow: 0 0 8px rgba(0, 255, 255, 0.3);
+        }
+        .capture-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            padding: 18px;
+            font-size: 1.2em;
+            font-weight: 700;
+            color: #fff;
+            background: linear-gradient(135deg, #ff00ff 0%, #7b00ff 100%);
+            border: none;
+            border-radius: 14px;
+            cursor: pointer;
+            box-shadow: 0 0 15px rgba(255, 0, 255, 0.3);
+            transition: transform 0.15s, box-shadow 0.2s;
+        }
+        .capture-btn:hover:not(:disabled) {
+            transform: scale(1.02);
+            box-shadow: 0 0 25px rgba(255, 0, 255, 0.5);
+        }
+        .capture-btn:active:not(:disabled) {
+            transform: scale(0.98);
+        }
+        .capture-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .preview-area {
+            display: none;
+            margin-top: 16px;
+            text-align: center;
+        }
+        .preview-area img {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 10px;
+            border: 2px solid rgba(0, 255, 255, 0.3);
+            object-fit: contain;
+        }
+        .preview-area .file-name {
+            color: #aaa;
+            font-size: 0.85em;
+            margin-top: 6px;
+            word-break: break-all;
+        }
+        .submit-btn {
+            display: none;
+            width: 100%;
+            padding: 16px;
+            font-size: 1.15em;
+            font-weight: 700;
+            color: #fff;
+            background: linear-gradient(135deg, #00c853 0%, #00bfa5 100%);
+            border: none;
+            border-radius: 14px;
+            cursor: pointer;
+            margin-top: 16px;
+            box-shadow: 0 0 12px rgba(0, 200, 83, 0.3);
+            transition: transform 0.15s, box-shadow 0.2s;
+        }
+        .submit-btn:hover:not(:disabled) {
+            transform: scale(1.02);
+            box-shadow: 0 0 20px rgba(0, 200, 83, 0.5);
+        }
+        .submit-btn:active:not(:disabled) {
+            transform: scale(0.98);
+        }
+        .submit-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .status-msg {
+            display: none;
+            text-align: center;
+            padding: 14px;
+            border-radius: 10px;
+            margin-top: 16px;
+            font-weight: 600;
+            font-size: 1.05em;
+        }
+        .status-msg.success {
+            display: block;
+            background: rgba(0, 200, 83, 0.15);
+            border: 1px solid rgba(0, 200, 83, 0.4);
+            color: #00e676;
+        }
+        .status-msg.error {
+            display: block;
+            background: rgba(255, 0, 0, 0.12);
+            border: 1px solid rgba(255, 0, 0, 0.4);
+            color: #ff5252;
+        }
+        .status-msg.warning {
+            display: block;
+            background: rgba(255, 200, 0, 0.12);
+            border: 1px solid rgba(255, 200, 0, 0.4);
+            color: #ffd600;
+        }
+        .loading-spinner {
+            display: none;
+            text-align: center;
+            padding: 24px;
+            color: #0ff;
+            font-size: 1.1em;
+        }
+        .loading-spinner.active {
+            display: block;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .loading-spinner.active {
+            animation: pulse 1.2s infinite;
+        }
+        .change-photo-btn {
+            display: inline-block;
+            margin-top: 8px;
+            padding: 6px 16px;
+            font-size: 0.9em;
+            color: #0ff;
+            background: transparent;
+            border: 1px solid #0ff;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .change-photo-btn:hover {
+            background: rgba(0, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="submit-container">
+        <div class="submit-header">
+            <h1>📝 Kvíz Factory</h1>
+            <p>Odovzdanie odpoveďového hárku</p>
+        </div>
+
+        <div class="submit-card">
+            <div id="loadingSpinner" class="loading-spinner active">Načítavam kvíz...</div>
+
+            <div id="submitForm" style="display:none;">
+                <div class="submit-field">
+                    <label for="teamSelect">Tím</label>
+                    <select id="teamSelect">
+                        <option value="">— Vyber tím —</option>
+                    </select>
+                </div>
+
+                <div class="submit-field">
+                    <label for="roundSelect">Kolo</label>
+                    <select id="roundSelect">
+                        <option value="">— Vyber kolo —</option>
+                    </select>
+                </div>
+
+                <input type="file" id="fileInput" accept="image/*" capture="camera" style="display:none;">
+                <button id="captureBtn" class="capture-btn" disabled>📸 Odfotiť hárok</button>
+
+                <div id="previewArea" class="preview-area">
+                    <img id="previewImg" alt="Náhľad fotky">
+                    <div id="fileName" class="file-name"></div>
+                    <button id="changePhotoBtn" class="change-photo-btn">🔄 Zmeniť fotku</button>
+                </div>
+
+                <button id="submitBtn" class="submit-btn">✅ Odoslať</button>
+            </div>
+
+            <div id="statusMsg" class="status-msg"></div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js"></script>
+    <script>
+    (async function() {
+        // === Init Supabase ===
+        const SUPABASE_URL = window.SUPABASE_URL;
+        const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY;
+        if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+            showStatus('Chýba konfigurácia Supabase.', 'error');
+            return;
+        }
+        const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // === DOM refs ===
+        const teamSelect = document.getElementById('teamSelect');
+        const roundSelect = document.getElementById('roundSelect');
+        const fileInput = document.getElementById('fileInput');
+        const captureBtn = document.getElementById('captureBtn');
+        const previewArea = document.getElementById('previewArea');
+        const previewImg = document.getElementById('previewImg');
+        const fileNameEl = document.getElementById('fileName');
+        const changePhotoBtn = document.getElementById('changePhotoBtn');
+        const submitBtn = document.getElementById('submitBtn');
+        const statusMsg = document.getElementById('statusMsg');
+        const submitForm = document.getElementById('submitForm');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+
+        let selectedFile = null;
+        let quizId = null;
+        let _submitting = false;
+
+        // === URL params ===
+        const params = new URLSearchParams(window.location.search);
+        const paramQuizId = params.get('quiz_id');
+        const paramRoundId = params.get('round_id');
+
+        // === Helpers ===
+        function showStatus(msg, type) {
+            statusMsg.textContent = msg;
+            statusMsg.className = 'status-msg ' + type;
+        }
+
+        function clearStatus() {
+            statusMsg.className = 'status-msg';
+            statusMsg.textContent = '';
+        }
+
+        function updateCaptureBtn() {
+            captureBtn.disabled = !teamSelect.value || !roundSelect.value;
+        }
+
+        // === Load quiz ===
+        try {
+            let quiz = null;
+            if (paramQuizId) {
+                const { data } = await sb
+                    .from('quizzes')
+                    .select('id, title')
+                    .eq('id', paramQuizId)
+                    .single();
+                quiz = data;
+            }
+            if (!quiz) {
+                const { data } = await sb
+                    .from('quizzes')
+                    .select('id, title')
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .single();
+                quiz = data;
+            }
+            if (!quiz) {
+                loadingSpinner.textContent = '';
+                showStatus('Žiadny kvíz nie je k dispozícii.', 'error');
+                return;
+            }
+            quizId = quiz.id;
+            document.querySelector('.submit-header p').textContent =
+                quiz.title ? quiz.title.replace(/\s*\(.*\)$/, '') : 'Odovzdanie odpoveďového hárku';
+
+            // Load teams
+            const { data: teams } = await sb
+                .from('teams')
+                .select('id, name')
+                .eq('quiz_id', quizId)
+                .order('name');
+            (teams || []).forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = t.name;
+                teamSelect.appendChild(opt);
+            });
+
+            // Load rounds
+            const { data: rounds } = await sb
+                .from('rounds')
+                .select('id, name, round_order')
+                .eq('quiz_id', quizId)
+                .order('round_order');
+            (rounds || []).forEach(r => {
+                const opt = document.createElement('option');
+                opt.value = r.id;
+                opt.textContent = r.name;
+                if (paramRoundId && r.id === paramRoundId) opt.selected = true;
+                roundSelect.appendChild(opt);
+            });
+
+            loadingSpinner.classList.remove('active');
+            submitForm.style.display = '';
+            updateCaptureBtn();
+        } catch (err) {
+            loadingSpinner.textContent = '';
+            showStatus('Chyba pri načítaní kvízu: ' + err.message, 'error');
+            return;
+        }
+
+        // === Event listeners ===
+        teamSelect.addEventListener('change', () => {
+            clearStatus();
+            updateCaptureBtn();
+        });
+        roundSelect.addEventListener('change', () => {
+            clearStatus();
+            updateCaptureBtn();
+        });
+
+        captureBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        changePhotoBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files[0];
+            if (!file) return;
+            selectedFile = file;
+            clearStatus();
+
+            // Show preview
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                previewImg.src = e.target.result;
+                previewArea.style.display = 'block';
+                fileNameEl.textContent = file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
+                submitBtn.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // === Submit ===
+        submitBtn.addEventListener('click', async () => {
+            if (_submitting) return;
+            const teamId = teamSelect.value;
+            const roundId = roundSelect.value;
+            if (!teamId || !roundId) {
+                showStatus('Vyber tím aj kolo.', 'warning');
+                return;
+            }
+            if (!selectedFile) {
+                showStatus('Najprv odfotíš hárok.', 'warning');
+                return;
+            }
+
+            // Check for duplicate submission
+            try {
+                const { data: existing } = await sb
+                    .from('answer_submissions')
+                    .select('id')
+                    .eq('quiz_id', quizId)
+                    .eq('team_id', teamId)
+                    .eq('round_id', roundId)
+                    .limit(1);
+                if (existing && existing.length > 0) {
+                    const teamName = teamSelect.options[teamSelect.selectedIndex].text;
+                    const roundName = roundSelect.options[roundSelect.selectedIndex].text;
+                    if (!confirm('Tím "' + teamName + '" už odovzdal hárok pre kolo "' + roundName + '". Odoslať znova?')) {
+                        return;
+                    }
+                }
+            } catch (e) {
+                // Continue even if check fails
+            }
+
+            _submitting = true;
+            submitBtn.disabled = true;
+            submitBtn.textContent = '⏳ Odosielam...';
+            clearStatus();
+
+            try {
+                // 1. Upload photo to Storage
+                const filePath = quizId + '/' + roundId + '/' + teamId + '_' + Date.now() + '.jpg';
+                const { error: uploadErr } = await sb.storage
+                    .from('answer-sheets')
+                    .upload(filePath, selectedFile, { contentType: selectedFile.type });
+                if (uploadErr) throw new Error('Upload zlyhal: ' + uploadErr.message);
+
+                // 2. Get public URL
+                const { data: urlData } = sb.storage
+                    .from('answer-sheets')
+                    .getPublicUrl(filePath);
+
+                // 3. Insert record
+                const { error: insertErr } = await sb
+                    .from('answer_submissions')
+                    .insert({
+                        quiz_id: quizId,
+                        team_id: teamId,
+                        round_id: roundId,
+                        photo_url: urlData.publicUrl,
+                        photo_path: filePath,
+                        submitted_by: 'Tím upload'
+                    });
+                if (insertErr) throw new Error('Uloženie záznamu zlyhalo: ' + insertErr.message);
+
+                // Success
+                showStatus('Hárok odoslaný! ✅', 'success');
+                submitBtn.style.display = 'none';
+                previewArea.style.display = 'none';
+                selectedFile = null;
+                fileInput.value = '';
+            } catch (err) {
+                showStatus('Chyba: ' + err.message, 'error');
+            } finally {
+                _submitting = false;
+                submitBtn.disabled = false;
+                submitBtn.textContent = '✅ Odoslať';
+            }
+        });
+    })();
+    </script>
+</body>
+</html>
