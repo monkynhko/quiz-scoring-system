@@ -21,7 +21,7 @@ jobs:
           rm -rf site
           mkdir site
           # copy the files you want to serve
-          cp index.html leaderboard.html app.js leaderboard.js styles.css README_SUPABASE.md site/ || true
+          cp index.html leaderboard.html app.js leaderboard.js submit.html styles.css README_SUPABASE.md site/ || true
           # copy optional assets folder if exists
           mkdir -p site/assets || true
           cp -r assets/* site/assets/ 2>/dev/null || true
