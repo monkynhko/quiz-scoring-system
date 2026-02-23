@@ -286,6 +286,9 @@
     let currentView = 'quiz'; // 'quiz' or 'league'
     // Season state: will hold the currently selected season id
     let currentSeasonId = null;
+    // Quiz cache: avoid redundant fetches when season hasn't changed
+    let _cachedQuizzes = null;
+    let _cachedSeasonForQuizzes = null;
 
     // Render a seasons dropdown next to the quiz dropdown
     function renderSeasonDropdown(seasons, onSelect) {
@@ -324,17 +327,14 @@
       });
       // try to set current selection
       try {
-        console.log('renderSeasonDropdown: seasons', seasons);
         if (currentSeasonId) select.value = currentSeasonId;
         else {
           const activeOpt = select.querySelector('option[data-active="1"]');
           if (activeOpt) select.value = activeOpt.value; else if (select.options.length) select.value = select.options[0].value;
         }
-        console.log('renderSeasonDropdown: selected', select.value, 'text', select.options[select.selectedIndex] && select.options[select.selectedIndex].text);
       } catch (e) { console.warn('season select set value failed', e); }
       select.addEventListener('change', async () => {
         currentSeasonId = select.value;
-        console.log('season changed to', currentSeasonId);
         if (typeof onSelect === 'function') await onSelect(select.value);
       });
       container.appendChild(select);
@@ -412,13 +412,9 @@
     // --- League aggregation: sum points by normalized team name across quizzes in the current season ---
     async function fetchLeague() {
       // determine quizzes that belong to the selected season
-      let seasonQuizzes = checkSupabaseError('quizzes', await supabase
-        .from('quizzes')
-        .select('id, created_at')
-        .order('created_at', { ascending: false }));
-      if (currentSeasonId) {
-        seasonQuizzes = checkSupabaseError('quizzes:season', await supabase.from('quizzes').select('id, created_at').eq('season_id', currentSeasonId).order('created_at', { ascending: false }));
-      }
+      let q = supabase.from('quizzes').select('id, created_at').order('created_at', { ascending: false });
+      if (currentSeasonId) q = q.eq('season_id', currentSeasonId);
+      const seasonQuizzes = checkSupabaseError('quizzes', await q);
       const quizIds = (seasonQuizzes || []).map(q => q.id).filter(Boolean);
       if (!quizIds.length) return { league: [], leagueCategoryStats: {} };
 
@@ -748,9 +744,13 @@
       }
       
       // Build enriched round info with topics
+      const rtByRound = {};
+      roundTopicsData.forEach(rt => {
+        if (!rtByRound[rt.round_id]) rtByRound[rt.round_id] = [];
+        rtByRound[rt.round_id].push(rt);
+      });
       const enrichedRounds = (rounds || []).map(round => {
-        const topics = roundTopicsData
-          .filter(rt => rt.round_id === round.id)
+        const topics = (rtByRound[round.id] || [])
           .sort((a, b) => a.topic_order - b.topic_order)
           .map(rt => {
             const cat = categoriesMap[rt.category_id];
@@ -1051,7 +1051,6 @@
         .order('name', { ascending: true });
       const seasons = resp.data;
       const seasonsError = resp.error;
-      console.log('initSeasons response', resp);
       if (seasonsError) console.warn('initSeasons error', seasonsError);
       if (seasons && seasons.length) {
         const active = seasons.find(s => s.is_active) || seasons[0];
@@ -1079,6 +1078,14 @@
     }
 
     async function renderArchive() {
+      // Use cached quizzes if season hasn't changed
+      if (_cachedQuizzes && _cachedSeasonForQuizzes === currentSeasonId) {
+        renderQuizDropdown(_cachedQuizzes, async (quizId) => {
+          currentQuizId = quizId;
+          await renderLeaderboard(quizId);
+        }, 'Kvízy:');
+        return;
+      }
       // fetch quizzes for the currently selected season (or none)
       let q = supabase
         .from('quizzes')
@@ -1087,7 +1094,9 @@
         .limit(20);
       if (currentSeasonId) q = q.eq('season_id', currentSeasonId);
       const { data: quizzes } = await q;
-      renderQuizDropdown(quizzes || [], async (quizId) => {
+      _cachedQuizzes = quizzes || [];
+      _cachedSeasonForQuizzes = currentSeasonId;
+      renderQuizDropdown(_cachedQuizzes, async (quizId) => {
         currentQuizId = quizId;
         await renderLeaderboard(quizId);
       }, 'Kvízy:');
@@ -1114,6 +1123,9 @@
     const PROJECTOR_PAUSE_DURATION = 4000; // ms pause at top/bottom
 
     async function fetchAndRenderProjector() {
+      // Preserve existing DOM so a failed refresh keeps the last good render
+      const lb = document.getElementById('leaderboard');
+      const snapshot = lb ? lb.innerHTML : '';
       try {
         if (currentView === 'league') {
           const data = await fetchLeague();
@@ -1131,7 +1143,9 @@
           await renderLeaderboard(currentQuizId);
         }
       } catch (err) {
-        console.error('Projector fetch error', err);
+        console.error('Projector fetch error, keeping previous render', err);
+        // Restore last good DOM on failure
+        if (lb) lb.innerHTML = snapshot;
       }
     }
 
