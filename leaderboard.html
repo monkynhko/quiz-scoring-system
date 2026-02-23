@@ -390,7 +390,7 @@
         seasonQuizzes = res.data;
       }
       const quizIds = (seasonQuizzes || []).map(q => q.id).filter(Boolean);
-      if (!quizIds.length) return { league: [] };
+      if (!quizIds.length) return { league: [], leagueCategoryStats: {} };
 
       // fetch teams that appeared in these quizzes
       const { data: teams } = await supabase
@@ -405,18 +405,16 @@
         .in('quiz_id', quizIds);
       const roundIds = (rounds || []).map(r => r.id).filter(Boolean);
       
-      // Try topic_scores first (new system)
-      let useTopicScores = false;
+      // Fetch round_topics with category info
       let roundTopicsData = [];
       let topicScoresData = [];
       if (roundIds.length) {
         const { data: rtData } = await supabase
           .from('round_topics')
-          .select('id, round_id')
+          .select('id, round_id, category_id, max_points')
           .in('round_id', roundIds);
         roundTopicsData = rtData || [];
         if (roundTopicsData.length) {
-          useTopicScores = true;
           const rtIds = roundTopicsData.map(rt => rt.id);
           const { data: tsData } = await supabase
             .from('topic_scores')
@@ -425,6 +423,21 @@
           topicScoresData = tsData || [];
         }
       }
+
+      // Fetch categories for names/icons
+      const categoryIds = [...new Set(roundTopicsData.filter(rt => rt.category_id).map(rt => rt.category_id))];
+      let categoriesMap = {};
+      if (categoryIds.length) {
+        const { data: cats } = await supabase
+          .from('categories')
+          .select('id, name, icon')
+          .in('id', categoryIds);
+        (cats || []).forEach(c => { categoriesMap[c.id] = c; });
+      }
+
+      // Build round_topic lookup
+      const roundTopicById = {};
+      roundTopicsData.forEach(rt => { roundTopicById[rt.id] = rt; });
       
       // Also fetch legacy scores
       const { data: scores } = roundIds.length ? await supabase
@@ -434,63 +447,86 @@
 
       const teamById = {};
       (teams || []).forEach(t => { teamById[t.id] = t; });
+
+      // Track which (team_id, round) combos are covered by topic_scores so we skip them in legacy
+      const topicScoreRounds = new Set(); // "teamId|roundId"
       
       // Build per-quiz scoremap for momentum
       const quizTeamTotals = {}; // { quizId: { norm: total } }
       quizIds.forEach(qid => { quizTeamTotals[qid] = {}; });
 
       // Aggregate by normalized name
-      const agg = {}; // norm -> { total, appearancesSet, nameCounts, firstSeen, quizTotals[] }
-      
-      if (useTopicScores && topicScoresData.length) {
-        // Map round_topic -> round -> quiz
-        const rtToRound = {};
-        roundTopicsData.forEach(rt => { rtToRound[rt.id] = rt.round_id; });
-        const roundToQuiz = {};
-        (rounds || []).forEach(r => { roundToQuiz[r.id] = r.quiz_id; });
-        
-        topicScoresData.forEach(ts => {
-          const teamId = ts.team_id;
-          const team = teamById[teamId];
-          if (!team) return;
-          const original = (team.name || 'Unknown').trim();
-          const norm = normalizeTeamName(original) || original.toLowerCase();
-          if (!agg[norm]) agg[norm] = { total: 0, appearancesSet: new Set(), nameCounts: {}, firstSeen: original, quizTotals: {} };
-          const scoreVal = Number(ts.score) || 0;
-          agg[norm].total += scoreVal;
-          agg[norm].appearancesSet.add(team.quiz_id);
-          agg[norm].nameCounts[original] = (agg[norm].nameCounts[original] || 0) + 1;
-          // Per-quiz total
-          const roundId = rtToRound[ts.round_topic_id];
-          const quizId = roundToQuiz[roundId];
-          if (quizId) {
-            if (!agg[norm].quizTotals[quizId]) agg[norm].quizTotals[quizId] = 0;
-            agg[norm].quizTotals[quizId] += scoreVal;
-          }
-        });
-      } else {
-        // Legacy scores
-        const roundToQuiz = {};
-        (rounds || []).forEach(r => { roundToQuiz[r.id] = r.quiz_id; });
-        
-        (scores || []).forEach(s => {
-          const teamId = s.team_id;
-          const team = teamById[teamId];
-          if (!team) return;
-          const original = (team.name || 'Unknown').trim();
-          const norm = normalizeTeamName(original) || original.toLowerCase();
-          if (!agg[norm]) agg[norm] = { total: 0, appearancesSet: new Set(), nameCounts: {}, firstSeen: original, quizTotals: {} };
-          const scoreVal = Number(s.score) || 0;
-          agg[norm].total += scoreVal;
-          agg[norm].appearancesSet.add(team.quiz_id);
-          agg[norm].nameCounts[original] = (agg[norm].nameCounts[original] || 0) + 1;
-          const quizId = roundToQuiz[s.round_id];
-          if (quizId) {
-            if (!agg[norm].quizTotals[quizId]) agg[norm].quizTotals[quizId] = 0;
-            agg[norm].quizTotals[quizId] += scoreVal;
-          }
-        });
-      }
+      const agg = {}; // norm -> { total, appearancesSet, nameCounts, firstSeen, quizTotals, categoryScores }
+      const leagueCategoryStats = {}; // { catName: { icon, totalScore, maxPossible, teamScores: { norm: {total,max} } } }
+
+      const rtToRound = {};
+      roundTopicsData.forEach(rt => { rtToRound[rt.id] = rt.round_id; });
+      const roundToQuiz = {};
+      (rounds || []).forEach(r => { roundToQuiz[r.id] = r.quiz_id; });
+
+      // 1) Process topic_scores (new system)
+      topicScoresData.forEach(ts => {
+        const teamId = ts.team_id;
+        const team = teamById[teamId];
+        if (!team) return;
+        const original = (team.name || 'Unknown').trim();
+        const norm = normalizeTeamName(original) || original.toLowerCase();
+        if (!agg[norm]) agg[norm] = { total: 0, appearancesSet: new Set(), nameCounts: {}, firstSeen: original, quizTotals: {}, categoryScores: {} };
+        const scoreVal = Number(ts.score) || 0;
+        agg[norm].total += scoreVal;
+        agg[norm].appearancesSet.add(team.quiz_id);
+        agg[norm].nameCounts[original] = (agg[norm].nameCounts[original] || 0) + 1;
+        // Per-quiz total
+        const roundId = rtToRound[ts.round_topic_id];
+        const quizId = roundToQuiz[roundId];
+        if (quizId) {
+          if (!agg[norm].quizTotals[quizId]) agg[norm].quizTotals[quizId] = 0;
+          agg[norm].quizTotals[quizId] += scoreVal;
+        }
+        // Track that this team+round is covered by topics
+        if (roundId) topicScoreRounds.add(teamId + '|' + roundId);
+
+        // Per-team category scores + league-wide category stats
+        const rt = roundTopicById[ts.round_topic_id];
+        if (rt) {
+          const cat = categoriesMap[rt.category_id];
+          const catName = cat ? cat.name : 'Other';
+          const catIcon = cat ? (cat.icon || '') : '\u2753';
+          const maxPts = rt.max_points || 5;
+          // Per-team
+          if (!agg[norm].categoryScores[catName]) agg[norm].categoryScores[catName] = { icon: catIcon, totalScore: 0, maxPossible: 0 };
+          agg[norm].categoryScores[catName].totalScore += scoreVal;
+          agg[norm].categoryScores[catName].maxPossible += maxPts;
+          // League-wide
+          if (!leagueCategoryStats[catName]) leagueCategoryStats[catName] = { icon: catIcon, totalScore: 0, maxPossible: 0, teamScores: {} };
+          leagueCategoryStats[catName].totalScore += scoreVal;
+          leagueCategoryStats[catName].maxPossible += maxPts;
+          if (!leagueCategoryStats[catName].teamScores[norm]) leagueCategoryStats[catName].teamScores[norm] = { total: 0, max: 0, displayName: original };
+          leagueCategoryStats[catName].teamScores[norm].total += scoreVal;
+          leagueCategoryStats[catName].teamScores[norm].max += maxPts;
+        }
+      });
+
+      // 2) Process legacy scores — but skip rounds already covered by topic_scores for that team
+      (scores || []).forEach(s => {
+        const teamId = s.team_id;
+        const team = teamById[teamId];
+        if (!team) return;
+        // Skip if this team+round already has topic_scores
+        if (topicScoreRounds.has(teamId + '|' + s.round_id)) return;
+        const original = (team.name || 'Unknown').trim();
+        const norm = normalizeTeamName(original) || original.toLowerCase();
+        if (!agg[norm]) agg[norm] = { total: 0, appearancesSet: new Set(), nameCounts: {}, firstSeen: original, quizTotals: {}, categoryScores: {} };
+        const scoreVal = Number(s.score) || 0;
+        agg[norm].total += scoreVal;
+        agg[norm].appearancesSet.add(team.quiz_id);
+        agg[norm].nameCounts[original] = (agg[norm].nameCounts[original] || 0) + 1;
+        const quizId = roundToQuiz[s.round_id];
+        if (quizId) {
+          if (!agg[norm].quizTotals[quizId]) agg[norm].quizTotals[quizId] = 0;
+          agg[norm].quizTotals[quizId] += scoreVal;
+        }
+      });
 
       // Sort quizzes by date (recent first) for momentum calculation
       const sortedQuizzes = (seasonQuizzes || []).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -518,13 +554,67 @@
           else momentum = 'stable';
         }
         
-        return { team: displayName, total: entry.total, appearances: entry.appearancesSet.size, momentum };
+        return { team: displayName, total: entry.total, appearances: entry.appearancesSet.size, momentum, categoryScores: entry.categoryScores || {} };
       }).sort((a, b) => b.total - a.total);
 
-      return { league };
+      return { league, leagueCategoryStats };
+    }
+
+    // Build expandable detail HTML for a team in league view
+    function renderLeagueTeamDetailHtml(row, escapeHtml) {
+      const cats = row.categoryScores || {};
+      const catEntries = Object.entries(cats);
+
+      if (!catEntries.length) {
+        return '<div style="color:#888; font-size:0.9em;">Žiadne detailné dáta — body sú zo starších kvízov bez kategórií.</div>';
+      }
+
+      let h = '<div style="font-size:1.05em; font-weight:700; color:#fff; margin-bottom:10px;">📊 ' + escapeHtml(row.team) + ' — Sezónne výsledky</div>';
+
+      // Sort categories by percentage descending
+      catEntries.sort((a, b) => {
+        const pctA = a[1].maxPossible > 0 ? a[1].totalScore / a[1].maxPossible : 0;
+        const pctB = b[1].maxPossible > 0 ? b[1].totalScore / b[1].maxPossible : 0;
+        return pctB - pctA;
+      });
+
+      catEntries.forEach(([catName, catData]) => {
+        const pct = catData.maxPossible > 0 ? Math.round((catData.totalScore / catData.maxPossible) * 100) : 0;
+        h += '<div class="team-detail-round">';
+        h += '<span class="round-label">' + (catData.icon || '') + ' ' + escapeHtml(catName) + ':</span> ';
+        h += '<span class="topic-score">' + catData.totalScore + '/' + catData.maxPossible + ' (' + pct + '%)</span>';
+        h += ' <span style="display:inline-block; width:80px; height:8px; background:#222; border-radius:4px; vertical-align:middle; overflow:hidden;">';
+        h += '<span style="display:block; height:100%; width:' + pct + '%; background:linear-gradient(90deg,#0ff,#ff00ff); border-radius:4px;"></span>';
+        h += '</span>';
+        h += '</div>';
+      });
+
+      // Best / worst category (with ties)
+      if (catEntries.length) {
+        const bestPct = catEntries[0][1].maxPossible > 0 ? Math.round((catEntries[0][1].totalScore / catEntries[0][1].maxPossible) * 100) : 0;
+        const worstPct = catEntries[catEntries.length - 1][1].maxPossible > 0 ? Math.round((catEntries[catEntries.length - 1][1].totalScore / catEntries[catEntries.length - 1][1].maxPossible) * 100) : 0;
+        const bestCats = catEntries.filter(([, cd]) => cd.maxPossible > 0 && Math.round((cd.totalScore / cd.maxPossible) * 100) === bestPct);
+        const worstCats = catEntries.filter(([, cd]) => cd.maxPossible > 0 && Math.round((cd.totalScore / cd.maxPossible) * 100) === worstPct);
+        const bestNames = bestCats.map(([name, cd]) => (cd.icon || '') + ' ' + escapeHtml(name)).join(', ');
+        const worstNames = worstCats.map(([name, cd]) => (cd.icon || '') + ' ' + escapeHtml(name)).join(', ');
+        h += '<div class="team-detail-best">📈 ' + (bestCats.length > 1 ? 'Najlepšie' : 'Najlepšia') + ': ' + bestNames + ' (' + bestPct + '%)</div>';
+        h += '<div class="team-detail-worst">📉 ' + (worstCats.length > 1 ? 'Najslabšie' : 'Najslabšia') + ': ' + worstNames + ' (' + worstPct + '%)</div>';
+      }
+
+      // Legacy points info
+      const topicTotal = catEntries.reduce((sum, [, cd]) => sum + cd.totalScore, 0);
+      const legacyPoints = row.total - topicTotal;
+      if (legacyPoints > 0) {
+        h += '<div style="margin-top:10px; font-size:0.85em; color:#888;">' + legacyPoints + ' b. z kvízov bez kategórií</div>';
+      }
+
+      return h;
     }
 
     function renderLeagueTable(data) {
+      function escapeHtml(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      }
       const list = (data && data.league) || [];
       if (!list.length) {
         document.getElementById('leaderboard').innerHTML = '<p>Žiadne ligové dáta.</p>';
@@ -549,16 +639,65 @@
           else if (row.momentum === 'stable') momentumHtml = '<div class="leaderboard-cell"><span class="momentum-stable" title="Stabilná forma">➖</span></div>';
           else momentumHtml = '<div class="leaderboard-cell">-</div>';
         }
+        const rowId = 'league-detail-' + i;
         html += `<div class="leaderboard-row${i < 3 ? ' leaderboard-top' : ''}">
           <div class="leaderboard-cell">${i < 3 ? ['🥇','🥈','🥉'][i] : '<span class="position-number">'+(i+1)+'</span>'}</div>
-          <div class="leaderboard-cell">${row.team}</div>
+          <div class="leaderboard-cell"><span class="team-name-clickable" data-league-idx="${i}">${escapeHtml(row.team)}</span></div>
           <div class='leaderboard-cell'>${row.appearances}</div>
           ${momentumHtml}
           <div class='leaderboard-cell total-score-cell'><b>${row.total}</b></div>
         </div>`;
+        // Detail panel
+        html += `<div id="${rowId}" class="team-detail-panel">${renderLeagueTeamDetailHtml(row, escapeHtml)}</div>`;
       });
-      html += '</div></div>';
+      html += '</div>';
+
+      // League Category Statistics section
+      const lcs = data.leagueCategoryStats || {};
+      if (Object.keys(lcs).length) {
+        html += `<div style="margin-top:32px; width:75vw; max-width:900px;">
+          <h3 style="color:#0ff; text-align:center; margin-bottom:16px;">📊 Štatistiky podľa kategórií (sezóna)</h3>
+          <div style="display:flex; flex-wrap:wrap; gap:16px; justify-content:center;">`;
+        Object.entries(lcs).forEach(([catName, catData]) => {
+          const pct = catData.maxPossible > 0 ? Math.round((catData.totalScore / catData.maxPossible) * 100) : 0;
+          const teamScores = catData.teamScores || {};
+          const numberOfTeams = Math.max(1, Object.keys(teamScores).length);
+          const avgPerTeam = (catData.totalScore / numberOfTeams) || 0;
+          const avgMaxPerTeam = (catData.maxPossible / numberOfTeams) || 0;
+          // Find best score and all tied winners (use displayName)
+          let bestScore = -Infinity;
+          Object.entries(teamScores).forEach(([, ts]) => { if (ts.total > bestScore) bestScore = ts.total; });
+          const winners = [];
+          Object.entries(teamScores).forEach(([, ts]) => { if (ts.total === bestScore) winners.push(ts.displayName || '?'); });
+          const winnersText = winners.length === 1
+            ? '🏆 Víťaz: ' + escapeHtml(winners[0]) + ' (' + bestScore + ')'
+            : '🏆 Víťazi: ' + winners.map(w => escapeHtml(w)).join(', ') + ' (' + bestScore + ')';
+          html += `<div class="category-stat-card" style="background:#1a1333; border:1px solid #333; border-radius:12px; padding:14px 18px; min-width:200px; max-width:280px; flex:1;">
+            <div style="font-size:1.2em; margin-bottom:6px;">${catData.icon || ''} <strong>${escapeHtml(catName)}</strong></div>
+            <div class="progress-bar-container" style="background:#222; border-radius:6px; height:14px; margin:8px 0; overflow:hidden;">
+              <div style="background:linear-gradient(90deg,#0ff,#ff00ff); height:100%; width:${pct}%; border-radius:6px; transition:width 0.5s;"></div>
+            </div>
+            <div style="font-size:0.85em; color:#aaa;">Priemer: ${avgPerTeam.toFixed(1)} / ${avgMaxPerTeam.toFixed(1)}</div>
+            ${winners.length ? '<div style="font-size:0.85em; color:#ffd700; margin-top:4px;">' + winnersText + '</div>' : ''}
+          </div>`;
+        });
+        html += '</div></div>';
+      }
+
+      html += '</div>';
       document.getElementById('leaderboard').innerHTML = html;
+
+      // Attach click handlers for league detail panels
+      document.querySelectorAll('.team-name-clickable[data-league-idx]').forEach(el => {
+        el.addEventListener('click', function () {
+          const idx = this.getAttribute('data-league-idx');
+          const panel = document.getElementById('league-detail-' + idx);
+          if (!panel) return;
+          const isOpen = panel.classList.contains('open');
+          document.querySelectorAll('.team-detail-panel.open').forEach(p => p.classList.remove('open'));
+          if (!isOpen) panel.classList.add('open');
+        });
+      });
     }
 
     async function fetchLeaderboardForQuiz(quizId) {
@@ -779,12 +918,13 @@
       });
       if (allTopics.length) {
         allTopics.sort((a, b) => (b.score / b.max) - (a.score / a.max));
-        const best = allTopics[0];
-        const worst = allTopics[allTopics.length - 1];
-        const bestPct = Math.round((best.score / best.max) * 100);
-        const worstPct = Math.round((worst.score / worst.max) * 100);
-        h += '<div class="team-detail-best">📈 Najlepšia téma: ' + (best.icon||'') + ' ' + escapeHtml(best.name) + ' (' + best.score + '/' + best.max + ' = ' + bestPct + '%)</div>';
-        h += '<div class="team-detail-worst">📉 Najslabšia téma: ' + (worst.icon||'') + ' ' + escapeHtml(worst.name) + ' (' + worst.score + '/' + worst.max + ' = ' + worstPct + '%)</div>';
+        const bestPct = Math.round((allTopics[0].score / allTopics[0].max) * 100);
+        const worstPct = Math.round((allTopics[allTopics.length - 1].score / allTopics[allTopics.length - 1].max) * 100);
+        const bestTopics = allTopics.filter(t => Math.round((t.score / t.max) * 100) === bestPct);
+        const worstTopics = allTopics.filter(t => Math.round((t.score / t.max) * 100) === worstPct);
+        const fmtList = (arr) => arr.map(t => (t.icon||'') + ' ' + escapeHtml(t.name) + ' (' + t.score + '/' + t.max + ')').join(', ');
+        h += '<div class="team-detail-best">📈 Najlepšia téma: ' + fmtList(bestTopics) + ' = ' + bestPct + '%</div>';
+        h += '<div class="team-detail-worst">📉 Najslabšia téma: ' + fmtList(worstTopics) + ' = ' + worstPct + '%</div>';
       }
       return h;
     }
