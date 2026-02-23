@@ -1,5 +1,10 @@
 // app.js — PR-ready Supabase + fallback + komentáre
 
+// === HTML ESCAPE UTILITY ===
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 // === KONFIGURÁCIA SUPABASE ===
 // Vlož svoje údaje z projektu Supabase (viď README_SUPABASE.md)
 // WARNING: Do NOT commit real keys. Use `.env` / hosting environment variables.
@@ -238,7 +243,9 @@ function setAdminUI(isAdmin) {
 }
 
 // === ULOŽENIE QUIZU DO SUPABASE ===
+let _saving = false;
 async function saveQuizToSupabase() {
+  if (_saving) return;
   if (mode !== 'supabase') {
     saveQuizToLocal();
     return;
@@ -247,6 +254,10 @@ async function saveQuizToSupabase() {
     alert('Iba admin môže ukladať quiz.');
     return;
   }
+  _saving = true;
+  const btn = elements.saveQuiz;
+  if (btn) { btn.disabled = true; btn.textContent = 'Ukladám...'; }
+  try {
   // 1. Vytvor quiz
   let quizId = state.quizId;
   if (!quizId) {
@@ -384,6 +395,10 @@ async function saveQuizToSupabase() {
     }
   }
   alert('Quiz uložený do Supabase!');
+  } finally {
+    _saving = false;
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Quiz'; }
+  }
 }
 
 // === EXPORT QUIZ DATA (simple client-side download) ===
@@ -518,13 +533,21 @@ async function loadQuizById(quizId) {
   }
   
   // Map legacy scores
+  const scoreLookup = {};
+  (scores || []).forEach(s => { scoreLookup[s.team_id + '|' + s.round_id] = s; });
+  const topicScoreLookup = {};
+  (topicScoresData || []).forEach(ts => { topicScoreLookup[ts.team_id + '|' + ts.round_topic_id] = ts; });
+  const rtByRound = {};
+  roundTopicsData.forEach(rt => {
+    if (!rtByRound[rt.round_id]) rtByRound[rt.round_id] = [];
+    rtByRound[rt.round_id].push(rt);
+  });
+
   state.scores = {};
   teams.forEach(team => {
     state.scores[team.name] = {};
     rounds.forEach(round => {
-      const s = (scores || []).find(
-        sc => sc.team_id === team.id && sc.round_id === round.id
-      );
+      const s = scoreLookup[team.id + '|' + round.id];
       state.scores[team.name][round.name] = s ? Number(s.score) : 0;
     });
   });
@@ -534,10 +557,10 @@ async function loadQuizById(quizId) {
   teams.forEach(team => {
     state.topicScores[team.name] = {};
     rounds.forEach(round => {
-      const rTopics = roundTopicsData.filter(rt => rt.round_id === round.id).sort((a, b) => a.topic_order - b.topic_order);
+      const rTopics = (rtByRound[round.id] || []).slice().sort((a, b) => a.topic_order - b.topic_order);
       rTopics.forEach((rt, idx) => {
         const key = round.name + '::' + (idx + 1);
-        const ts = topicScoresData.find(ts => ts.team_id === team.id && ts.round_topic_id === rt.id);
+        const ts = topicScoreLookup[team.id + '|' + rt.id];
         state.topicScores[team.name][key] = ts ? Number(ts.score) : 0;
       });
     });
@@ -591,12 +614,12 @@ async function fetchLatestLeaderboard() {
     scores = scData || [];
   }
   // Spočítaj total per team
+  const scoreLookup = {};
+  (scores || []).forEach(s => { scoreLookup[s.team_id + '|' + s.round_id] = s; });
   const leaderboard = (teams || []).map(team => {
     let total = 0;
     rounds.forEach(round => {
-      const s = scores.find(
-        sc => sc.team_id === team.id && sc.round_id === round.id
-      );
+      const s = scoreLookup[team.id + '|' + round.id];
       total += s ? Number(s.score) : 0;
     });
     return { team: team.name, total };
@@ -665,12 +688,6 @@ function loadQuizFromLocal() {
       alert('Chyba načítania z localStorage!');
     }
   }
-}
-
-// === VALIDÁCIA SKÓRE ===
-function validateScore(val) {
-  const n = Number(val);
-  return !isNaN(n) && n >= 0;
 }
 
 // === ZÁKLADNÉ FUNKCIE UI ===
@@ -850,10 +867,15 @@ function updateTeamsList() {
   state.teams.forEach(team => {
     const teamDiv = document.createElement('div');
     teamDiv.className = 'team-item';
-    teamDiv.innerHTML = `
-      <span>${team}</span>
-      <button onclick="removeTeam('${team}')" class="neon-button">Remove</button>
-    `;
+    const span = document.createElement('span');
+    span.textContent = team;
+    const btn = document.createElement('button');
+    btn.className = 'neon-button';
+    btn.textContent = 'Remove';
+    btn.dataset.team = team;
+    btn.addEventListener('click', function() { window.removeTeam(this.dataset.team); });
+    teamDiv.appendChild(span);
+    teamDiv.appendChild(btn);
     elements.teamsList.appendChild(teamDiv);
   });
 }
@@ -881,19 +903,25 @@ function updateRoundsList() {
       const icon = t.categoryIcon || '';
       const name = t.customName || t.categoryName || '?';
       const max = t.maxPoints || 5;
-      return `<span class="round-topic-pill">${icon} ${name} <span class="topic-max">(max ${max})</span></span>`;
+      return `<span class="round-topic-pill">${escapeHtml(icon)} ${escapeHtml(name)} <span class="topic-max">(max ${max})</span></span>`;
     }).join('');
-    const safeName = round.name.replace(/'/g, "\\'");
     roundDiv.innerHTML = `
       <div style="flex:1;">
-        <div class="round-name">${round.name}</div>
+        <div class="round-name">${escapeHtml(round.name)}</div>
         <div class="round-topics-row">${topicPills || '<span style="color:#666; font-size:0.9em;">Žiadne témy</span>'}</div>
       </div>
       <div style="display:flex; gap:6px;">
-        <button onclick="editRound('${safeName}')" class="neon-button" style="background:#2196F3; font-size:0.85em;">Edit</button>
-        <button onclick="removeRound('${safeName}')" class="neon-button" style="background:#e53935; font-size:0.85em;">Remove</button>
+        <button class="neon-button edit-round-btn" style="background:#2196F3; font-size:0.85em;">Edit</button>
+        <button class="neon-button remove-round-btn" style="background:#e53935; font-size:0.85em;">Remove</button>
       </div>
     `;
+    // Attach event handlers via data attributes
+    const editBtn = roundDiv.querySelector('.edit-round-btn');
+    const removeBtn = roundDiv.querySelector('.remove-round-btn');
+    editBtn.dataset.round = round.name;
+    removeBtn.dataset.round = round.name;
+    editBtn.addEventListener('click', function() { window.editRound(this.dataset.round); });
+    removeBtn.addEventListener('click', function() { window.removeRound(this.dataset.round); });
     elements.roundsList.appendChild(roundDiv);
   });
 }
@@ -965,7 +993,7 @@ function updateScoreboard() {
     state.rounds.forEach(round => {
       const topics = round.topics || state.roundTopics[round.name] || [];
       const colspan = topics.length || 1;
-      html += `<th colspan="${colspan}" style="border-bottom:none; text-align:center;">${round.name}</th>`;
+      html += `<th colspan="${colspan}" style="border-bottom:none; text-align:center;">${escapeHtml(round.name)}</th>`;
     });
     html += '<th rowspan="2">Total</th></tr>';
     // Second header row: topic names
@@ -974,7 +1002,7 @@ function updateScoreboard() {
       const topics = round.topics || state.roundTopics[round.name] || [];
       if (topics.length) {
         topics.forEach(t => {
-          const label = (t.categoryIcon || '') + ' ' + (t.customName || t.categoryName || '?');
+          const label = escapeHtml((t.categoryIcon || '') + ' ' + (t.customName || t.categoryName || '?'));
           html += `<th style="font-size:0.8em; font-weight:normal; color:#aaa;">${label}<br><span style="font-size:0.75em;">(max ${t.maxPoints || 5})</span></th>`;
         });
       } else {
@@ -986,14 +1014,14 @@ function updateScoreboard() {
     // Legacy single-row header
     html += '<tr><th>Team</th>';
     state.rounds.forEach(round => {
-      html += `<th>${round.name}</th>`;
+      html += `<th>${escapeHtml(round.name)}</th>`;
     });
     html += '<th>Total</th></tr>';
   }
   
   // Data rows
   state.teams.forEach(team => {
-    html += `<tr><td>${team}</td>`;
+    html += `<tr><td>${escapeHtml(team)}</td>`;
     let total = 0;
     state.rounds.forEach(round => {
       const topics = round.topics || state.roundTopics[round.name] || [];
@@ -1029,8 +1057,7 @@ window.updateScore = function(team, round, score) {
   let parsed = parseFloat(score);
   if (isNaN(parsed) || parsed < 0) parsed = 0;
   state.scores[team][round] = parsed;
-  updateScoreboard();
-  updateLeaderboard();
+  debouncedScoreRender();
 };
 
 window.updateTopicScore = function(team, topicKey, score) {
@@ -1050,9 +1077,17 @@ window.updateTopicScore = function(team, topicKey, score) {
     });
     state.scores[team][roundName] = roundTotal;
   }
-  updateScoreboard();
-  updateLeaderboard();
+  debouncedScoreRender();
 };
+
+let _scoreRenderTimer = null;
+function debouncedScoreRender() {
+  if (_scoreRenderTimer) clearTimeout(_scoreRenderTimer);
+  _scoreRenderTimer = setTimeout(() => {
+    updateScoreboard();
+    updateLeaderboard();
+  }, 300);
+}
 
 function updateLeaderboard() {
   const hasTopics = state.rounds.some(r => (r.topics && r.topics.length) || (state.roundTopics[r.name] && state.roundTopics[r.name].length));
@@ -1086,7 +1121,7 @@ function updateLeaderboard() {
         ${teamScores.map((score, index) => `
           <tr class="${index === 0 ? 'winner' : ''}">
             <td>${index + 1}</td>
-            <td>${score.team}</td>
+            <td>${escapeHtml(score.team)}</td>
             <td>${score.total}</td>
           </tr>
         `).join('')}
