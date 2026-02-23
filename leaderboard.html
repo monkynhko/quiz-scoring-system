@@ -1106,7 +1106,7 @@
     let projectorRAF = null;
     let projectorRefreshInterval = null;
     const PROJECTOR_REFRESH_INTERVAL = 30000;
-    const PROJECTOR_SCROLL_SPEED = 0.8; // px per frame at ~60fps
+    const PROJECTOR_SCROLL_SPEED = 1.0; // px per frame at ~60fps
     const PROJECTOR_PAUSE_DURATION = 4000; // ms pause at top/bottom
 
     async function fetchAndRenderProjector() {
@@ -1190,8 +1190,12 @@
       projectorRAF = requestAnimationFrame(tick);
     }
 
-    function stopProjectorScroll() {
+    function cancelScrollAnimation() {
       if (projectorRAF) { cancelAnimationFrame(projectorRAF); projectorRAF = null; }
+    }
+
+    function stopProjectorScroll() {
+      cancelScrollAnimation();
       if (projectorRefreshInterval) { clearInterval(projectorRefreshInterval); projectorRefreshInterval = null; }
     }
 
@@ -1211,7 +1215,7 @@
 
         // Auto-refresh data every 30s
         projectorRefreshInterval = setInterval(async () => {
-          stopProjectorScroll();
+          cancelScrollAnimation();
           await fetchAndRenderProjector();
           wrapInScrollContainer();
           startProjectorScroll();
