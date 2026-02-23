@@ -866,12 +866,17 @@ function updateRoundsList() {
     const roundDiv = document.createElement('div');
     roundDiv.className = 'team-item round-item-card';
     const topics = round.topics || state.roundTopics[round.name] || [];
-    const topicLabels = topics.map(t => `${t.categoryIcon || ''} ${t.customName || t.categoryName || '?'} (max ${t.maxPoints || 5})`).join(' | ');
+    const topicPills = topics.map(t => {
+      const icon = t.categoryIcon || '';
+      const name = t.customName || t.categoryName || '?';
+      const max = t.maxPoints || 5;
+      return `<span class="round-topic-pill">${icon} ${name} <span class="topic-max">(max ${max})</span></span>`;
+    }).join('');
     const safeName = round.name.replace(/'/g, "\\'");
     roundDiv.innerHTML = `
       <div style="flex:1;">
-        <strong style="color:#fff;">${round.name}</strong>
-        <div style="font-size:0.9em; color:#e0c0ff; margin-top:4px; font-weight:500;">${topicLabels || '<span style="color:#666;">Žiadne témy</span>'}</div>
+        <div class="round-name">${round.name}</div>
+        <div class="round-topics-row">${topicPills || '<span style="color:#666; font-size:0.9em;">Žiadne témy</span>'}</div>
       </div>
       <div style="display:flex; gap:6px;">
         <button onclick="editRound('${safeName}')" class="neon-button" style="background:#2196F3; font-size:0.85em;">Edit</button>

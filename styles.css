@@ -400,14 +400,45 @@ section h2 {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 10px 14px;
-    background: rgba(255,255,255,0.06);
-    border-radius: 8px;
-    border: 1px solid rgba(255,0,255,0.15);
-    margin-bottom: 6px;
+    padding: 14px 18px;
+    background: rgba(20, 10, 40, 0.95);
+    border-radius: 10px;
+    border: 1px solid rgba(255,0,255,0.25);
+    margin-bottom: 8px;
+    gap: 12px;
 }
 .round-item-card:hover {
-    background: rgba(255,255,255,0.10);
+    background: rgba(40, 20, 60, 0.95);
+    border-color: rgba(255,0,255,0.4);
+}
+.round-name {
+    font-size: 1.15em;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 6px;
+    text-shadow: 0 0 8px rgba(255,0,255,0.2);
+}
+.round-topics-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.round-topic-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255,0,255,0.12);
+    border: 1px solid rgba(255,0,255,0.25);
+    border-radius: 20px;
+    padding: 3px 12px;
+    font-size: 0.88em;
+    color: #e0c0ff;
+    font-weight: 500;
+}
+.round-topic-pill .topic-max {
+    color: #ffd700;
+    font-size: 0.85em;
+    font-weight: 600;
 }
 
 /* Progress bar for category stats */
