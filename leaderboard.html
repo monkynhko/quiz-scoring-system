@@ -855,19 +855,33 @@
           <div style="display:flex; flex-wrap:wrap; gap:16px; justify-content:center;">`;
         Object.entries(data.categoryStats).forEach(([catName, catData]) => {
           const pct = catData.maxPossible > 0 ? Math.round((catData.totalScore / catData.maxPossible) * 100) : 0;
-          // Find best team in this category
-          let bestTeam = '';
-          let bestScore = -1;
-          Object.entries(catData.teamScores).forEach(([team, ts]) => {
-            if (ts.total > bestScore) { bestScore = ts.total; bestTeam = team; }
+          // Compute average per team (use number of teams present in teamScores)
+          const teamScores = catData.teamScores || {};
+          const numberOfTeams = Math.max(1, Object.keys(teamScores).length);
+          const avgPerTeam = (catData.totalScore / numberOfTeams) || 0;
+          const avgMaxPerTeam = (catData.maxPossible / numberOfTeams) || 0;
+          // Find best score and collect all teams that reached it
+          let bestScore = -Infinity;
+          Object.entries(teamScores).forEach(([team, ts]) => {
+            const val = Number(ts.total) || 0;
+            if (val > bestScore) bestScore = val;
           });
+          const winners = [];
+          Object.entries(teamScores).forEach(([team, ts]) => {
+            const val = Number(ts.total) || 0;
+            if (val === bestScore) winners.push(team);
+          });
+          const winnersText = winners.length === 1
+            ? `🏆 Víťaz: ${escapeHtml(winners[0])} (${bestScore})`
+            : `🏆 Víťazi: ${winners.map(w => escapeHtml(w)).join(', ')} (${bestScore})`;
+
           html += `<div class="category-stat-card" style="background:#1a1333; border:1px solid #333; border-radius:12px; padding:14px 18px; min-width:200px; max-width:280px; flex:1;">
             <div style="font-size:1.2em; margin-bottom:6px;">${catData.icon || ''} <strong>${escapeHtml(catName)}</strong></div>
             <div class="progress-bar-container" style="background:#222; border-radius:6px; height:14px; margin:8px 0; overflow:hidden;">
               <div style="background:linear-gradient(90deg,#0ff,#ff00ff); height:100%; width:${pct}%; border-radius:6px; transition:width 0.5s;"></div>
             </div>
-            <div style="font-size:0.85em; color:#aaa;">Priemer: ${pct}% (${catData.totalScore}/${catData.maxPossible})</div>
-            ${bestTeam ? `<div style="font-size:0.85em; color:#ffd700; margin-top:4px;">Najlepší: ${escapeHtml(bestTeam)} (${bestScore})</div>` : ''}
+            <div style="font-size:0.85em; color:#aaa;">Priemer: ${avgPerTeam.toFixed(1)} / ${avgMaxPerTeam.toFixed(1)}</div>
+            ${winners.length ? `<div style="font-size:0.85em; color:#ffd700; margin-top:4px;">${winnersText}</div>` : ''}
           </div>`;
         });
         html += '</div></div>';
