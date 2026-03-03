@@ -72,6 +72,133 @@
       .team-detail-round { font-size: 0.85em; gap: 4px 8px; }
     }
 
+    /* === Mobile responsiveness for controls & leaderboard === */
+    @media (max-width: 700px) {
+      /* Controls row: stack vertically */
+      .controls-row {
+        flex-direction: column !important;
+        width: 95vw !important;
+        max-width: 100% !important;
+        gap: 10px;
+        position: static !important;
+      }
+      .controls-row > div {
+        position: static !important;
+        padding-right: 0 !important;
+        width: 100% !important;
+        justify-content: center !important;
+      }
+      .controls-right {
+        position: static !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        width: 100% !important;
+      }
+      .dropdown-area {
+        flex-direction: column !important;
+        align-items: center !important;
+        width: 100% !important;
+        gap: 8px !important;
+      }
+      #seasonDropdown, #quizDropdown {
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 100% !important;
+      }
+      #seasonDropdown select, #quizDropdown select {
+        min-width: 0 !important;
+        max-width: 55vw !important;
+        flex: 1 !important;
+      }
+      .neon-button {
+        font-size: 0.95em !important;
+        padding: 10px 14px !important;
+      }
+      /* Leaderboard container: full width on mobile */
+      .leaderboard-modern {
+        padding: 12px 0 8px 0 !important;
+        border-radius: 10px !important;
+      }
+      .leaderboard-col {
+        width: 96vw !important;
+        max-width: 100% !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+      }
+      .leaderboard-header {
+        font-size: 1.15em !important;
+        margin-bottom: 10px !important;
+        padding: 0 8px !important;
+      }
+      .leaderboard-row {
+        flex-wrap: nowrap !important;
+        min-width: max-content;
+      }
+      .leaderboard-cell {
+        flex: 0 0 auto !important;
+        min-width: 48px !important;
+        max-width: 120px !important;
+        font-size: 0.85em !important;
+        padding: 3px 4px !important;
+        white-space: nowrap;
+      }
+      /* First cell (medal/position) smaller */
+      .leaderboard-row .leaderboard-cell:first-child {
+        min-width: 32px !important;
+        max-width: 36px !important;
+      }
+      /* Team name cell wider */
+      .leaderboard-row .leaderboard-cell:nth-child(2) {
+        min-width: 80px !important;
+        max-width: 140px !important;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .total-score-cell {
+        font-size: 0.95em !important;
+      }
+      .round-score-cell, .round-score-header {
+        font-size: 0.8em !important;
+        min-width: 44px !important;
+        padding-left: 4px !important;
+      }
+      .position-number {
+        width: 24px !important;
+        font-size: 0.85em !important;
+      }
+      .medal {
+        font-size: 1.1em !important;
+      }
+      /* Stats sections: full width */
+      .leaderboard-modern > div[style*="width:75vw"],
+      .leaderboard-modern > div[style*="margin-top"],
+      div[style*="width:75vw"] {
+        width: 94vw !important;
+        max-width: 100% !important;
+        padding: 0 4px !important;
+        box-sizing: border-box !important;
+      }
+      /* Category stat cards: stack */
+      .category-stat-card {
+        min-width: 0 !important;
+        max-width: 100% !important;
+        flex: 1 1 100% !important;
+      }
+      /* Round winner cards */
+      div[style*="min-width:140px"] {
+        min-width: 0 !important;
+        flex: 1 1 calc(50% - 8px) !important;
+      }
+      /* Team detail panel on mobile */
+      .team-detail-panel {
+        margin: 2px 0 6px 0 !important;
+      }
+      .team-detail-panel.open {
+        padding: 10px 8px !important;
+      }
+    }
+
     /* Projector auto-scroll mode */
     body.projector-mode {
       margin: 0;
@@ -196,12 +323,12 @@
         const controlsRow = document.createElement('div');
         controlsRow.className = 'controls-row';
         // make row centered and relatively positioned so dropdown can be absolutely placed to the right
-        controlsRow.style = 'width:75vw; max-width:900px; display:flex; align-items:center; justify-content:center; margin:12px auto; position:relative;';
+        controlsRow.style = 'width:75vw; max-width:900px; display:flex; align-items:center; justify-content:center; margin:12px auto; position:relative; flex-wrap:wrap; gap:10px;';
 
         // centered toggle wrapper
         const toggleWrapper = document.createElement('div');
         // give padding on the right so absolute-right dropdown won't overlap toggle text
-        toggleWrapper.style = 'flex:1; display:flex; justify-content:center; padding-right:220px;';
+        toggleWrapper.style = 'flex:1; display:flex; justify-content:center;';
         const toggleBtn = document.createElement('button');
         function updateToggleText() {
           toggleBtn.textContent = currentView === 'league' ? 'Zobraziť aktuálny leaderboard' : 'Zobraziť ligové skóre';
@@ -225,7 +352,7 @@
         const rightArea = document.createElement('div');
         rightArea.className = 'controls-right';
         // absolutely position the dropdown to the right edge of the controlsRow
-        rightArea.style = 'position:absolute; right:0; top:0; display:flex; align-items:center; gap:12px;';
+        rightArea.style = 'display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:center;';
 
         controlsRow.appendChild(toggleWrapper);
         controlsRow.appendChild(rightArea);
