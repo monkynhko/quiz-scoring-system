@@ -699,3 +699,57 @@ section h2 {
         border-radius: 12px;
     }
 }
+
+/* Tab navigation */
+.tab-navigation {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+
+.tab-button {
+    padding: 8px 20px;
+    border: 1px solid rgba(255, 0, 255, 0.3);
+    border-radius: 8px 8px 0 0;
+    background: rgba(10, 10, 46, 0.6);
+    color: #aaa;
+    cursor: pointer;
+    font-size: 0.95em;
+    transition: all 0.3s;
+}
+
+.tab-button:hover {
+    background: rgba(255, 0, 255, 0.15);
+    color: #fff;
+}
+
+.tab-button.active {
+    background: rgba(255, 0, 255, 0.25);
+    color: #fff;
+    border-bottom-color: transparent;
+    font-weight: bold;
+    text-shadow: 0 0 8px rgba(255, 0, 255, 0.4);
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* Quiz name display in header */
+.quiz-name-display {
+    font-size: 1.1em;
+    letter-spacing: 1px;
+    color: #0ff;
+    text-align: center;
+    margin: 4px 0;
+    text-shadow: 0 0 6px rgba(0, 255, 255, 0.5), 0 0 12px rgba(0, 255, 255, 0.3);
+}
+
+.quiz-name-display:empty {
+    display: none;
+}
