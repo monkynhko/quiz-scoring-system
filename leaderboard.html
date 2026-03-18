@@ -98,6 +98,43 @@
       will-change: transform;
     }
     body.projector-mode.hide-cursor { cursor: none; }
+
+    /* Projector autoscroll toggle button */
+    .projector-scroll-toggle {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 10000;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: 2px solid #0ff;
+      background: rgba(10, 5, 20, 0.7);
+      color: #0ff;
+      font-size: 1.4em;
+      cursor: pointer;
+      opacity: 0.1;
+      transition: opacity 0.3s ease, box-shadow 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      -webkit-backdrop-filter: blur(4px);
+      backdrop-filter: blur(4px);
+      box-shadow: 0 0 8px rgba(0, 255, 255, 0.2);
+      outline: none;
+      padding: 0;
+      line-height: 1;
+    }
+    .projector-scroll-toggle:hover {
+      opacity: 0.9 !important;
+      box-shadow: 0 0 16px rgba(0, 255, 255, 0.6);
+    }
+    body.projector-mode.hide-cursor .projector-scroll-toggle {
+      opacity: 0 !important;
+      pointer-events: none;
+      transition: opacity 0.5s ease;
+    }
   </style>
 </head>
 <body>
@@ -1109,11 +1146,11 @@
     }
 
     // --------------------------
-    // Projector Auto-Scroll Mode
-    // - Reuses existing renderTable() / renderLeagueTable()
+    // Projector Auto-Scroll Mode (Seamless)
+    // - Background data refresh without interrupting scroll
     // - Smooth GPU-accelerated translateY scroll
     // - Pauses 4s at top/bottom, then reverses direction
-    // - Auto-refresh data every 20s
+    // - Toggle button for manual pause/resume
     // - Trigger: ?projector=1
     // --------------------------
     let projectorRAF = null;
@@ -1122,10 +1159,19 @@
     const PROJECTOR_SCROLL_SPEED = 1.0; // px per frame at ~60fps
     const PROJECTOR_PAUSE_DURATION = 4000; // ms pause at top/bottom
 
-    async function fetchAndRenderProjector() {
-      // Preserve existing DOM so a failed refresh keeps the last good render
-      const lb = document.getElementById('leaderboard');
-      const snapshot = lb ? lb.innerHTML : '';
+    // Scroll state lives in outer scope so it survives DOM refreshes
+    let projectorY = 0;
+    let projectorDirection = 1; // 1 = down, -1 = up
+    let projectorPaused = true;
+    let projectorPauseStart = performance.now();
+    let projectorLastTime = 0;
+    let projectorScrollActive = true; // controlled by toggle button
+    let projectorRefreshing = false; // guard against concurrent refreshes
+    let projectorMouseMoveHandler = null; // store for cleanup
+    let projectorToggleBtn = null;
+
+    // Fetch data and render directly to #leaderboard (for initial render only)
+    async function fetchAndRenderProjectorDirect() {
       try {
         if (currentView === 'league') {
           const data = await fetchLeague();
@@ -1140,12 +1186,110 @@
               .single();
             if (quiz) currentQuizId = quiz.id;
           }
-          await renderLeaderboard(currentQuizId);
+          if (currentQuizId) {
+            const { data: quiz } = await supabase
+              .from('quizzes')
+              .select('id, title, created_at')
+              .eq('id', currentQuizId)
+              .single();
+            if (quiz) {
+              const data = await fetchLeaderboardForQuiz(quiz.id);
+              data.quizTitle = (quiz.title || '').replace(/\s*\(.*\)$/, '');
+              renderTable(data);
+            }
+          }
         }
       } catch (err) {
-        console.error('Projector fetch error, keeping previous render', err);
-        // Restore last good DOM on failure
-        if (lb) lb.innerHTML = snapshot;
+        console.error('Projector initial fetch error', err);
+      }
+    }
+
+    // Fetch data and render to an offscreen element, return innerHTML string
+    async function fetchProjectorContentHtml() {
+      const tempDiv = document.createElement('div');
+      tempDiv.style.cssText = 'position:absolute;left:-9999px;top:-9999px;visibility:hidden;';
+      document.body.appendChild(tempDiv);
+
+      // Temporarily swap IDs so renderTable/renderLeagueTable write to our temp element
+      const realLb = document.getElementById('leaderboard');
+      realLb.id = 'leaderboard-real-tmp';
+      tempDiv.id = 'leaderboard';
+
+      try {
+        if (currentView === 'league') {
+          const data = await fetchLeague();
+          renderLeagueTable(data);
+        } else {
+          if (!currentQuizId) {
+            const { data: quiz } = await supabase
+              .from('quizzes')
+              .select('id')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single();
+            if (quiz) currentQuizId = quiz.id;
+          }
+          if (currentQuizId) {
+            const { data: quiz } = await supabase
+              .from('quizzes')
+              .select('id, title, created_at')
+              .eq('id', currentQuizId)
+              .single();
+            if (quiz) {
+              const data = await fetchLeaderboardForQuiz(quiz.id);
+              data.quizTitle = (quiz.title || '').replace(/\s*\(.*\)$/, '');
+              renderTable(data);
+            }
+          }
+        }
+        return tempDiv.innerHTML;
+      } catch (err) {
+        console.error('Projector offscreen render error', err);
+        return null;
+      } finally {
+        // Restore IDs and clean up
+        tempDiv.id = 'leaderboard-temp-discard';
+        realLb.id = 'leaderboard';
+        tempDiv.remove();
+      }
+    }
+
+    // Seamless background refresh: swap inner content without interrupting scroll
+    async function projectorBackgroundRefresh() {
+      if (projectorRefreshing) return;
+      projectorRefreshing = true;
+      try {
+        const newHtml = await fetchProjectorContentHtml();
+        if (!newHtml) return;
+
+        const inner = document.querySelector('.projector-scroll-inner');
+        const container = document.querySelector('.projector-scroll-container');
+        if (!inner || !container) return;
+
+        // Swap content
+        inner.innerHTML = newHtml;
+
+        // Clamp y to new max scroll
+        const newMaxScroll = Math.max(0, inner.scrollHeight - container.clientHeight);
+        if (newMaxScroll <= 0) {
+          projectorY = 0;
+          projectorDirection = 1;
+        } else if (projectorY > newMaxScroll) {
+          projectorY = newMaxScroll;
+          // If we were scrolling down and hit the new shorter end, reverse
+          if (projectorDirection === 1) {
+            projectorDirection = -1;
+            projectorPaused = true;
+            projectorPauseStart = performance.now();
+          }
+        }
+
+        // Apply transform immediately
+        inner.style.transform = `translateY(${-projectorY}px)`;
+      } catch (err) {
+        console.error('Projector background refresh error:', err);
+      } finally {
+        projectorRefreshing = false;
       }
     }
 
@@ -1166,20 +1310,22 @@
       const inner = document.querySelector('.projector-scroll-inner');
       if (!container || !inner) return;
 
-      let y = 0;
-      let direction = 1; // 1 = down, -1 = up
-      let paused = true;
-      let pauseStart = performance.now();
-      let lastTime = 0;
+      projectorLastTime = 0;
 
       function tick(timestamp) {
-        if (!lastTime) lastTime = timestamp;
-        const delta = timestamp - lastTime;
-        lastTime = timestamp;
+        if (!projectorLastTime) projectorLastTime = timestamp;
+        const delta = timestamp - projectorLastTime;
+        projectorLastTime = timestamp;
 
-        if (paused) {
-          if (timestamp - pauseStart >= PROJECTOR_PAUSE_DURATION) {
-            paused = false;
+        // If toggle-paused, keep RAF alive but don't move
+        if (!projectorScrollActive) {
+          projectorRAF = requestAnimationFrame(tick);
+          return;
+        }
+
+        if (projectorPaused) {
+          if (timestamp - projectorPauseStart >= PROJECTOR_PAUSE_DURATION) {
+            projectorPaused = false;
           }
           projectorRAF = requestAnimationFrame(tick);
           return;
@@ -1187,21 +1333,21 @@
 
         const maxScroll = Math.max(0, inner.scrollHeight - container.clientHeight);
         const step = PROJECTOR_SCROLL_SPEED * (delta / 16.667);
-        y += direction * step;
+        projectorY += projectorDirection * step;
 
-        if (y >= maxScroll) {
-          y = maxScroll;
-          direction = -1;
-          paused = true;
-          pauseStart = timestamp;
-        } else if (y <= 0) {
-          y = 0;
-          direction = 1;
-          paused = true;
-          pauseStart = timestamp;
+        if (projectorY >= maxScroll) {
+          projectorY = maxScroll;
+          projectorDirection = -1;
+          projectorPaused = true;
+          projectorPauseStart = timestamp;
+        } else if (projectorY <= 0) {
+          projectorY = 0;
+          projectorDirection = 1;
+          projectorPaused = true;
+          projectorPauseStart = timestamp;
         }
 
-        inner.style.transform = `translateY(${-y}px)`;
+        inner.style.transform = `translateY(${-projectorY}px)`;
         projectorRAF = requestAnimationFrame(tick);
       }
 
@@ -1217,6 +1363,26 @@
       if (projectorRefreshInterval) { clearInterval(projectorRefreshInterval); projectorRefreshInterval = null; }
     }
 
+    // Create the floating toggle button for projector autoscroll
+    function createProjectorToggleButton() {
+      const btn = document.createElement('button');
+      btn.className = 'projector-scroll-toggle';
+      btn.textContent = '\u23F8'; // ⏸
+      btn.title = 'Pozastaviť/obnoviť autoscroll';
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        projectorScrollActive = !projectorScrollActive;
+        btn.textContent = projectorScrollActive ? '\u23F8' : '\u25B6'; // ⏸ or ▶
+        // If resuming, reset the direction pause so it continues immediately
+        if (projectorScrollActive && projectorPaused) {
+          projectorPauseStart = performance.now() - PROJECTOR_PAUSE_DURATION;
+        }
+      });
+      document.body.appendChild(btn);
+      projectorToggleBtn = btn;
+      return btn;
+    }
+
     async function enterProjectorMode() {
       try {
         document.body.classList.add('projector-mode');
@@ -1226,26 +1392,36 @@
           try { await document.documentElement.requestFullscreen(); } catch (e) { /* ignore */ }
         }
 
-        // Render current view normally
-        await fetchAndRenderProjector();
+        // Initial render (directly, no loading indicator)
+        await fetchAndRenderProjectorDirect();
         wrapInScrollContainer();
+
+        // Reset scroll state
+        projectorY = 0;
+        projectorDirection = 1;
+        projectorPaused = true;
+        projectorPauseStart = performance.now();
+        projectorScrollActive = true;
+        projectorLastTime = 0;
+
         startProjectorScroll();
 
-        // Auto-refresh data every 30s
-        projectorRefreshInterval = setInterval(async () => {
-          cancelScrollAnimation();
-          await fetchAndRenderProjector();
-          wrapInScrollContainer();
-          startProjectorScroll();
+        // Create toggle button
+        createProjectorToggleButton();
+
+        // Seamless background refresh every 20s (no scroll interruption)
+        projectorRefreshInterval = setInterval(() => {
+          projectorBackgroundRefresh();
         }, PROJECTOR_REFRESH_INTERVAL);
 
-        // Hide cursor after 3s of inactivity
+        // Hide cursor and toggle button after 3s of inactivity
         let mouseTimer;
         function resetCursorTimer() {
           document.body.classList.remove('hide-cursor');
           if (mouseTimer) clearTimeout(mouseTimer);
           mouseTimer = setTimeout(() => document.body.classList.add('hide-cursor'), 3000);
         }
+        projectorMouseMoveHandler = resetCursorTimer;
         document.addEventListener('mousemove', resetCursorTimer);
         resetCursorTimer();
 
@@ -1266,6 +1442,15 @@
       stopProjectorScroll();
       document.body.classList.remove('projector-mode', 'hide-cursor');
 
+      // Remove toggle button
+      if (projectorToggleBtn) { projectorToggleBtn.remove(); projectorToggleBtn = null; }
+
+      // Remove mousemove handler
+      if (projectorMouseMoveHandler) {
+        document.removeEventListener('mousemove', projectorMouseMoveHandler);
+        projectorMouseMoveHandler = null;
+      }
+
       // Unwrap scroll container
       const lb = document.getElementById('leaderboard');
       const container = lb && lb.querySelector('.projector-scroll-container');
@@ -1276,6 +1461,12 @@
         }
         container.remove();
       }
+
+      // Reset scroll state
+      projectorY = 0;
+      projectorDirection = 1;
+      projectorPaused = true;
+      projectorScrollActive = true;
 
       try { if (document.fullscreenElement) await document.exitFullscreen(); } catch (e) { /* ignore */ }
       if (!SKIP_AUTO_LOAD) renderLeaderboard();

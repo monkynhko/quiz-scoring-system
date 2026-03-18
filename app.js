@@ -584,6 +584,7 @@ async function loadQuizById(quizId) {
   updateScoreboard();
   updateLeaderboard();
   updateQuizStats();
+  updateQuizNameDisplay();
 }
 
 // === FETCH NAJNOVŠIEHO LEADERBOARDU (public) ===
@@ -964,24 +965,40 @@ window.editRound = function(roundName) {
   const round = state.rounds.find(r => r.name === roundName);
   if (!round) return;
   const currentTopics = round.topics || state.roundTopics[roundName] || [];
+
+  // Save existing topic scores BEFORE opening modal so they survive edits
+  const savedScores = {};
+  state.teams.forEach(team => {
+    savedScores[team] = {};
+    currentTopics.forEach((t, idx) => {
+      const key = roundName + '::' + (idx + 1);
+      savedScores[team][idx] = (state.topicScores[team] && state.topicScores[team][key]) || 0;
+    });
+  });
+
   showTopicSelectionModal(roundName, (topic1, topic2) => {
     const newTopics = [topic1, topic2];
     round.topics = newTopics;
     state.roundTopics[roundName] = newTopics;
-    // Re-initialize topic scores for all teams with new topics
+    // Re-initialize topic scores for all teams, preserving existing values by index
     state.teams.forEach(team => {
       if (!state.topicScores[team]) state.topicScores[team] = {};
       // Remove old topic scores for this round
       Object.keys(state.topicScores[team]).forEach(key => {
         if (key.startsWith(roundName + '::')) delete state.topicScores[team][key];
       });
-      // Add new topic scores (init to 0)
+      // Add new topic scores — reuse saved value if the index existed, else 0
       newTopics.forEach((t, idx) => {
         const key = roundName + '::' + (idx + 1);
-        state.topicScores[team][key] = 0;
+        state.topicScores[team][key] = savedScores[team][idx] !== undefined ? savedScores[team][idx] : 0;
       });
-      // Reset legacy flat score
-      if (state.scores[team]) state.scores[team][roundName] = 0;
+      // Recompute legacy flat score as sum of preserved topic scores
+      let roundTotal = 0;
+      newTopics.forEach((t, idx) => {
+        const key = roundName + '::' + (idx + 1);
+        roundTotal += state.topicScores[team][key] || 0;
+      });
+      if (state.scores[team]) state.scores[team][roundName] = roundTotal;
     });
     updateRoundsList();
     updateScoreboard();
@@ -1142,6 +1159,13 @@ function updateLeaderboard() {
     </table>
   `;
   updateQuizStats();
+}
+
+// Display current quiz name in header
+function updateQuizNameDisplay() {
+  const el = document.getElementById('currentQuizName');
+  if (!el) return;
+  el.textContent = state.title || '';
 }
 
 function updateQuizStats() {
@@ -1427,6 +1451,7 @@ async function confirmNewQuiz() {
     updateScoreboard();
     updateLeaderboard();
     updateQuizStats();
+    updateQuizNameDisplay();
   };
 }
 
@@ -1475,6 +1500,7 @@ function renderQuizDropdown(quizzes, onSelect, label = 'Vyber quiz:') {
   if (mode === 'supabase') await fetchCategories();
   setAdminUI(state.isAdmin);
   renderAuthButtons(); // <-- pridaj sem, aby sa zobrazilo vždy
+  updateQuizNameDisplay();
 })();
 
 document.addEventListener('DOMContentLoaded', function() {
