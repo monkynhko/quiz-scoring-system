@@ -1383,7 +1383,7 @@ async function showSubmissionDetail(sub, teamMap, roundMap) {
         let tableHtml = '<table style="width:100%; font-size:0.85em; margin-top:8px; border-collapse:collapse;">';
         tableHtml += '<tr style="color:#0ff;"><th>#</th><th>AI prečítal</th><th>Správna</th><th>Conf</th><th>✅/❌</th><th>Override</th></tr>';
         evals.forEach(ev => {
-          const conf = Math.round((ev.confidence || 0) * 100);
+          const conf = Math.round(ev.confidence || 0);
           const bgColor = conf > 90 ? 'rgba(0,200,83,0.15)' : conf > 70 ? 'rgba(255,200,0,0.15)' : 'rgba(255,0,0,0.1)';
           const icon = ev.is_correct ? '✅' : '❌';
           const overrideIcon = ev.admin_override === true ? '✅' : ev.admin_override === false ? '❌' : '';
@@ -1457,6 +1457,36 @@ async function showSubmissionDetail(sub, teamMap, roundMap) {
     }
   } else if (aiStatus === 'processing') {
     aiSection.innerHTML = '<p style="color:#ffd600; animation: pulse 1.2s infinite;">⏳ AI spracováva...</p>';
+    // Reset button for stuck processing
+    if (state.isAdmin) {
+      const resetAiBtn = document.createElement('button');
+      resetAiBtn.className = 'neon-button';
+      resetAiBtn.textContent = '🔄 Reset AI (zaseknuté)';
+      resetAiBtn.style = 'background: #e65100; margin-top:8px; width:100%; font-size:0.95em;';
+      resetAiBtn.addEventListener('click', async () => {
+        if (!confirm('Resetovať AI status na "pending"? Potom môžeš spustiť AI znova.')) return;
+        resetAiBtn.disabled = true;
+        resetAiBtn.textContent = '⏳ Resetujem...';
+        const { error } = await supabase
+          .from('answer_submissions')
+          .update({ ai_status: null, ai_score: null, ai_max_score: null, ai_error: null })
+          .eq('id', sub.id);
+        if (error) {
+          alert('Chyba: ' + error.message);
+          resetAiBtn.disabled = false;
+          resetAiBtn.textContent = '🔄 Reset AI (zaseknuté)';
+        } else {
+          // Also delete old AI evaluations for this submission
+          await supabase.from('ai_evaluations').delete().eq('submission_id', sub.id);
+          sub.ai_status = null;
+          sub.ai_score = null;
+          sub.ai_max_score = null;
+          sub.ai_error = null;
+          showSubmissionDetail(sub, teamMap, roundMap);
+        }
+      });
+      aiSection.appendChild(resetAiBtn);
+    }
   } else if (aiStatus === 'failed') {
     aiSection.innerHTML = `<p style="color:#ff5252;">⚠️ AI chyba: ${escapeHtml(sub.ai_error || 'Neznáma chyba')}</p>`;
   }
