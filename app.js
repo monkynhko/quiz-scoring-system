@@ -925,15 +925,19 @@ function updateRoundsList() {
         <div class="round-topics-row">${topicPills || '<span style="color:#666; font-size:0.9em;">Žiadne témy</span>'}</div>
       </div>
       <div style="display:flex; gap:6px;">
+        <button class="neon-button answers-round-btn" style="background:#ff9800; font-size:0.85em;">📝 Odpovede</button>
         <button class="neon-button edit-round-btn" style="background:#2196F3; font-size:0.85em;">Edit</button>
         <button class="neon-button remove-round-btn" style="background:#e53935; font-size:0.85em;">Remove</button>
       </div>
     `;
     // Attach event handlers via data attributes
+    const answersBtn = roundDiv.querySelector('.answers-round-btn');
     const editBtn = roundDiv.querySelector('.edit-round-btn');
     const removeBtn = roundDiv.querySelector('.remove-round-btn');
+    answersBtn.dataset.round = round.name;
     editBtn.dataset.round = round.name;
     removeBtn.dataset.round = round.name;
+    answersBtn.addEventListener('click', function() { showCorrectAnswersModal(this.dataset.round); });
     editBtn.addEventListener('click', function() { window.editRound(this.dataset.round); });
     removeBtn.addEventListener('click', function() { window.removeRound(this.dataset.round); });
     elements.roundsList.appendChild(roundDiv);
@@ -1220,7 +1224,7 @@ async function fetchSubmissions(quizId, roundId, status) {
   if (mode !== 'supabase' || !quizId) return [];
   let q = supabase
     .from('answer_submissions')
-    .select('id, quiz_id, team_id, round_id, photo_url, photo_path, submitted_at, submitted_by, status, admin_notes, score_override, reviewed_at, reviewed_by')
+    .select('id, quiz_id, team_id, round_id, photo_url, photo_path, submitted_at, submitted_by, status, admin_notes, score_override, reviewed_at, reviewed_by, ai_status, ai_score, ai_max_score, ai_error')
     .eq('quiz_id', quizId)
     .order('submitted_at', { ascending: false });
   if (roundId) q = q.eq('round_id', roundId);
@@ -1268,6 +1272,15 @@ async function loadAndRenderSubmissions() {
     (rounds || []).forEach(r => { roundMap[r.id] = r.name; });
   }
 
+  // Generate signed URLs for all submissions (private bucket)
+  for (const sub of submissions) {
+    if (sub.photo_path) {
+      sub._signedUrl = await getSignedPhotoUrl(sub.photo_path);
+    } else {
+      sub._signedUrl = sub.photo_url || '';
+    }
+  }
+
   renderSubmissions(submissions, teamMap, roundMap);
 }
 
@@ -1289,15 +1302,28 @@ function renderSubmissions(submissions, teamMap, roundMap) {
     const teamName = escapeHtml(teamMap[sub.team_id] || sub.team_id);
     const roundName = escapeHtml(roundMap[sub.round_id] || sub.round_id);
 
+    // AI status badge
+    let aiBadge = '';
+    if (sub.ai_status === 'processing') {
+      aiBadge = '<div style="font-size:0.8em; color:#7c3aed; margin-top:2px;">🔄 AI...</div>';
+    } else if (sub.ai_status === 'completed' && sub.ai_max_score > 0) {
+      const aiPct = Math.round((sub.ai_score / sub.ai_max_score) * 100);
+      const aiColor = aiPct > 70 ? '#00e676' : aiPct >= 50 ? '#ffd600' : '#ff5252';
+      aiBadge = `<div style="font-size:0.8em; color:${aiColor}; margin-top:2px; font-weight:bold;">🤖 ${sub.ai_score}/${sub.ai_max_score}</div>`;
+    } else if (sub.ai_status === 'failed') {
+      aiBadge = '<div style="font-size:0.8em; color:#ff5252; margin-top:2px;">⚠️ AI chyba</div>';
+    }
+
     card.innerHTML = `
       <div class="submission-thumb">
-        <img src="${escapeHtml(sub.photo_url)}" alt="Hárok" loading="lazy">
+        <img src="${escapeHtml(sub._signedUrl || sub.photo_url || '')}" alt="Hárok" loading="lazy">
       </div>
       <div class="submission-info">
         <div class="submission-team">${teamName}</div>
         <div class="submission-detail">Kolo: ${roundName}</div>
         <div class="submission-detail">${date} ${time}</div>
         <div class="submission-status ${statusClass}">${statusIcon} ${escapeHtml(sub.status)}</div>
+        ${aiBadge}
       </div>
       <div class="submission-actions">
         <button class="neon-button submission-view-btn" data-id="${sub.id}">Zobraziť</button>
@@ -1312,10 +1338,12 @@ function renderSubmissions(submissions, teamMap, roundMap) {
   });
 }
 
-function showSubmissionDetail(sub, teamMap, roundMap) {
+async function showSubmissionDetail(sub, teamMap, roundMap) {
   const modal = elements.submissionModal;
   if (!modal) return;
-  elements.submissionModalImg.src = sub.photo_url;
+  // Use signed URL for private bucket
+  const imgUrl = sub._signedUrl || sub.photo_url || '';
+  elements.submissionModalImg.src = imgUrl;
 
   const teamName = escapeHtml(teamMap[sub.team_id] || sub.team_id);
   const roundName = escapeHtml(roundMap[sub.round_id] || sub.round_id);
@@ -1330,6 +1358,171 @@ function showSubmissionDetail(sub, teamMap, roundMap) {
     ${sub.admin_notes ? '<p><strong>Poznámky:</strong> ' + escapeHtml(sub.admin_notes) + '</p>' : ''}
     ${sub.score_override != null ? '<p><strong>Skóre:</strong> ' + escapeHtml(String(sub.score_override)) + '</p>' : ''}
   `;
+
+  // === AI Vyhodnotenie sekcia ===
+  const aiSection = document.createElement('div');
+  aiSection.style = 'margin-top:12px; padding-top:12px; border-top:1px solid rgba(255,0,255,0.3);';
+
+  const aiStatus = sub.ai_status || null;
+  const aiScore = sub.ai_score;
+  const aiMax = sub.ai_max_score;
+
+  if (aiStatus === 'completed' && aiScore != null) {
+    aiSection.innerHTML = `
+      <p style="color:#0ff; font-weight:bold;">🤖 AI Vyhodnotenie</p>
+      <p style="color:#00e676; font-size:1.2em;">AI skóre: ${aiScore}/${aiMax}</p>
+    `;
+    // Load and display evaluations
+    try {
+      const { data: evals } = await supabase
+        .from('ai_evaluations')
+        .select('*')
+        .eq('submission_id', sub.id)
+        .order('question_number');
+      if (evals && evals.length) {
+        let tableHtml = '<table style="width:100%; font-size:0.85em; margin-top:8px; border-collapse:collapse;">';
+        tableHtml += '<tr style="color:#0ff;"><th>#</th><th>AI prečítal</th><th>Správna</th><th>Conf</th><th>✅/❌</th><th>Override</th></tr>';
+        evals.forEach(ev => {
+          const conf = Math.round((ev.confidence || 0) * 100);
+          const bgColor = conf > 90 ? 'rgba(0,200,83,0.15)' : conf > 70 ? 'rgba(255,200,0,0.15)' : 'rgba(255,0,0,0.1)';
+          const icon = ev.is_correct ? '✅' : '❌';
+          const overrideIcon = ev.admin_override === true ? '✅' : ev.admin_override === false ? '❌' : '';
+          tableHtml += `<tr style="background:${bgColor};">
+            <td style="padding:4px; border-bottom:1px solid #333;">${ev.question_number}</td>
+            <td style="padding:4px; border-bottom:1px solid #333;">${escapeHtml(ev.ocr_text || '')}</td>
+            <td style="padding:4px; border-bottom:1px solid #333;">${escapeHtml(ev.correct_answer || '')}</td>
+            <td style="padding:4px; border-bottom:1px solid #333;">${conf}%</td>
+            <td style="padding:4px; border-bottom:1px solid #333;">${icon}</td>
+            <td style="padding:4px; border-bottom:1px solid #333;">${overrideIcon}</td>
+          </tr>`;
+        });
+        tableHtml += '</table>';
+        aiSection.innerHTML += tableHtml;
+
+        // Admin override buttons for each evaluation
+        if (state.isAdmin) {
+          const overrideDiv = document.createElement('div');
+          overrideDiv.style = 'margin-top:8px;';
+          overrideDiv.innerHTML = '<p style="color:#aaa; font-size:0.85em;">Klikni na riadok pre manuálny override:</p>';
+          
+          // Make table rows clickable for override
+          setTimeout(() => {
+            const rows = aiSection.querySelectorAll('tr');
+            rows.forEach((row, i) => {
+              if (i === 0) return; // skip header
+              row.style.cursor = 'pointer';
+              row.addEventListener('click', async () => {
+                const ev = evals[i - 1];
+                const current = ev.admin_override;
+                let newOverride;
+                if (current === null || current === undefined) {
+                  newOverride = !ev.is_correct; // flip AI decision
+                } else {
+                  newOverride = null; // reset
+                }
+                const { error } = await supabase
+                  .from('ai_evaluations')
+                  .update({ admin_override: newOverride })
+                  .eq('id', ev.id);
+                if (error) {
+                  alert('Chyba: ' + error.message);
+                } else {
+                  // Recalculate score
+                  const { data: updatedEvals } = await supabase
+                    .from('ai_evaluations')
+                    .select('is_correct, admin_override')
+                    .eq('submission_id', sub.id);
+                  if (updatedEvals) {
+                    let newScore = 0;
+                    updatedEvals.forEach(e => {
+                      const correct = e.admin_override !== null ? e.admin_override : e.is_correct;
+                      if (correct) newScore++;
+                    });
+                    await supabase
+                      .from('answer_submissions')
+                      .update({ ai_score: newScore })
+                      .eq('id', sub.id);
+                    sub.ai_score = newScore;
+                  }
+                  // Refresh modal
+                  showSubmissionDetail(sub, teamMap, roundMap);
+                }
+              });
+            });
+          }, 0);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load AI evaluations', e);
+    }
+  } else if (aiStatus === 'processing') {
+    aiSection.innerHTML = '<p style="color:#ffd600; animation: pulse 1.2s infinite;">⏳ AI spracováva...</p>';
+  } else if (aiStatus === 'failed') {
+    aiSection.innerHTML = `<p style="color:#ff5252;">⚠️ AI chyba: ${escapeHtml(sub.ai_error || 'Neznáma chyba')}</p>`;
+  }
+
+  // AI trigger button (if not completed and not processing)
+  if (state.isAdmin && aiStatus !== 'completed' && aiStatus !== 'processing') {
+    const aiBtn = document.createElement('button');
+    aiBtn.className = 'neon-button';
+    aiBtn.textContent = '🤖 Spustiť AI vyhodnotenie';
+    aiBtn.style = 'background: linear-gradient(135deg, #7c3aed, #2563eb); margin-top:8px; width:100%;';
+    aiBtn.addEventListener('click', async () => {
+      aiBtn.disabled = true;
+      aiBtn.textContent = '⏳ Spracovávam...';
+      try {
+        const { data, error } = await supabase.functions.invoke('evaluate-submission', {
+          body: { submission_id: sub.id }
+        });
+        if (error) throw error;
+        // Reload submission data
+        const { data: updated } = await supabase
+          .from('answer_submissions')
+          .select('ai_status, ai_score, ai_max_score, ai_error')
+          .eq('id', sub.id)
+          .single();
+        if (updated) {
+          sub.ai_status = updated.ai_status;
+          sub.ai_score = updated.ai_score;
+          sub.ai_max_score = updated.ai_max_score;
+          sub.ai_error = updated.ai_error;
+        }
+        showSubmissionDetail(sub, teamMap, roundMap);
+      } catch (e) {
+        alert('AI chyba: ' + (e.message || JSON.stringify(e)));
+        aiBtn.disabled = false;
+        aiBtn.textContent = '🤖 Spustiť AI vyhodnotenie (znova)';
+      }
+    });
+    aiSection.appendChild(aiBtn);
+  }
+
+  // "Potvrdiť AI skóre → zapísať body" button
+  if (state.isAdmin && aiStatus === 'completed' && aiScore != null) {
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'neon-button';
+    confirmBtn.textContent = `☑️ Potvrdiť AI skóre → zapísať body`;
+    confirmBtn.style = 'background: linear-gradient(135deg, #00c853, #00bfa5); margin-top:8px; width:100%;';
+    confirmBtn.addEventListener('click', async () => {
+      // Write AI score to score_override and mark as reviewed
+      const { error } = await supabase
+        .from('answer_submissions')
+        .update({ score_override: aiScore, status: 'reviewed', reviewed_at: new Date().toISOString(), reviewed_by: state.user?.id })
+        .eq('id', sub.id);
+      if (error) {
+        alert('Chyba: ' + error.message);
+      } else {
+        sub.status = 'reviewed';
+        sub.score_override = aiScore;
+        elements.submissionModal.style.display = 'none';
+        await loadAndRenderSubmissions();
+        alert('Body zapísané! Skóre: ' + aiScore + '/' + aiMax);
+      }
+    });
+    aiSection.appendChild(confirmBtn);
+  }
+
+  elements.submissionModalInfo.appendChild(aiSection);
 
   const actionsEl = elements.submissionModalActions;
   actionsEl.innerHTML = '';
@@ -1404,6 +1597,9 @@ function switchTab(tab) {
   }
   if (tab === 'submissions') {
     loadAndRenderSubmissions();
+  }
+  if (tab === 'answers') {
+    loadAndRenderCorrectAnswers();
   }
 }
 
@@ -1564,6 +1760,10 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
+  // Batch AI evaluate button
+  const batchAiBtn = document.getElementById('batchAiEvaluate');
+  if (batchAiBtn) batchAiBtn.addEventListener('click', batchAiEvaluate);
+
   renderAuthButtons(); // <-- pridaj sem, aby sa zobrazilo vždy
 });
 
@@ -1605,6 +1805,396 @@ function renderAuthButtons() {
       location.reload();
     };
     container.appendChild(signOutBtn);
+  }
+}
+
+// === CORRECT ANSWERS MANAGEMENT ===
+async function loadCorrectAnswers(roundTopicId) {
+  const { data, error } = await supabase
+    .from('correct_answers')
+    .select('question_number, correct_answer, accept_alternatives')
+    .eq('round_topic_id', roundTopicId)
+    .order('question_number');
+  if (error) { console.error('loadCorrectAnswers error', error); return []; }
+  return data || [];
+}
+
+async function saveCorrectAnswersForTopic(roundTopicId, answers) {
+  for (const a of answers) {
+    const { error } = await supabase
+      .from('correct_answers')
+      .upsert({
+        round_topic_id: roundTopicId,
+        question_number: a.question_number,
+        correct_answer: a.correct_answer,
+        accept_alternatives: a.accept_alternatives || []
+      }, { onConflict: 'round_topic_id,question_number' });
+    if (error) console.error('saveCorrectAnswer error', error);
+  }
+}
+
+function showCorrectAnswersModal(roundName) {
+  if (!state.isAdmin) return;
+  const round = state.rounds.find(r => r.name === roundName);
+  if (!round) { alert('Kolo nenájdené.'); return; }
+  const topics = round.topics || state.roundTopics[roundName] || [];
+  if (!topics.length) { alert('Kolo nemá žiadne témy. Najprv pridaj témy cez Edit.'); return; }
+
+  // Check if topics have DB ids
+  const allHaveIds = topics.every(t => t.id);
+  if (!allHaveIds) {
+    alert('Najprv ulož kvíz (Save Quiz) pred zadávaním odpovedí — témy ešte nemajú ID v databáze.');
+    return;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.style = 'position:fixed; inset:0; background:rgba(0,0,0,0.7); display:flex; align-items:center; justify-content:center; z-index:9999; overflow-y:auto;';
+  const box = document.createElement('div');
+  box.style = 'background:#111; color:#fff; padding:24px; border-radius:12px; min-width:400px; max-width:90%; max-height:90vh; overflow-y:auto;';
+
+  let formHtml = '<h3 style="margin-top:0; color:#ff9800;">📝 Správne odpovede — ' + escapeHtml(roundName) + '</h3>';
+
+  topics.forEach((topic, tIdx) => {
+    const icon = topic.categoryIcon || '';
+    const name = topic.customName || topic.categoryName || 'Téma ' + (tIdx + 1);
+    const maxPts = topic.maxPoints || 5;
+    const qCount = Math.ceil(maxPts);
+    formHtml += '<div style="margin-top:16px; padding:12px; background:#1a1333; border-radius:8px; border:1px solid #333;">';
+    formHtml += '<div style="font-weight:bold; color:#0ff; margin-bottom:8px;">' + escapeHtml(icon) + ' ' + escapeHtml(name) + ' <span style="color:#aaa; font-weight:normal;">(max ' + maxPts + ')</span></div>';
+    for (let q = 1; q <= qCount; q++) {
+      formHtml += '<div style="display:flex; gap:8px; align-items:center; margin-bottom:6px; flex-wrap:wrap;">';
+      formHtml += '<label style="min-width:70px; font-size:0.9em;">Otázka ' + q + ':</label>';
+      formHtml += '<input class="neon-input ca-answer" data-topic-idx="' + tIdx + '" data-q="' + q + '" placeholder="Správna odpoveď" style="flex:1; min-width:140px; padding:6px 10px; font-size:0.9em;" />';
+      formHtml += '<input class="neon-input ca-alts" data-topic-idx="' + tIdx + '" data-q="' + q + '" placeholder="Alternatívy (čiarkou)" style="flex:1; min-width:140px; padding:6px 10px; font-size:0.85em; color:#aaa;" />';
+      formHtml += '</div>';
+    }
+    formHtml += '</div>';
+  });
+
+  formHtml += '<div style="text-align:right; display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">';
+  formHtml += '<button id="cancelCaModal" class="neon-button">Zrušiť</button>';
+  formHtml += '<button id="saveCaModal" class="neon-button" style="background:#00c853;">💾 Uložiť</button>';
+  formHtml += '</div>';
+
+  box.innerHTML = formHtml;
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  // Pre-fill from DB
+  (async () => {
+    for (let tIdx = 0; tIdx < topics.length; tIdx++) {
+      const topic = topics[tIdx];
+      if (!topic.id) continue;
+      const existing = await loadCorrectAnswers(topic.id);
+      existing.forEach(row => {
+        const answerInput = box.querySelector('.ca-answer[data-topic-idx="' + tIdx + '"][data-q="' + row.question_number + '"]');
+        const altsInput = box.querySelector('.ca-alts[data-topic-idx="' + tIdx + '"][data-q="' + row.question_number + '"]');
+        if (answerInput) answerInput.value = row.correct_answer || '';
+        if (altsInput) altsInput.value = (row.accept_alternatives || []).join(', ');
+      });
+    }
+  })();
+
+  box.querySelector('#cancelCaModal').onclick = () => overlay.remove();
+  box.querySelector('#saveCaModal').onclick = async () => {
+    const saveBtn = box.querySelector('#saveCaModal');
+    saveBtn.disabled = true;
+    saveBtn.textContent = '⏳ Ukladám...';
+    try {
+      for (let tIdx = 0; tIdx < topics.length; tIdx++) {
+        const topic = topics[tIdx];
+        if (!topic.id) continue;
+        const maxPts = topic.maxPoints || 5;
+        const qCount = Math.ceil(maxPts);
+        const answers = [];
+        for (let q = 1; q <= qCount; q++) {
+          const answerInput = box.querySelector('.ca-answer[data-topic-idx="' + tIdx + '"][data-q="' + q + '"]');
+          const altsInput = box.querySelector('.ca-alts[data-topic-idx="' + tIdx + '"][data-q="' + q + '"]');
+          const correctAnswer = answerInput ? answerInput.value.trim() : '';
+          const altsRaw = altsInput ? altsInput.value.trim() : '';
+          const alternatives = altsRaw ? altsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+          if (!correctAnswer) continue; // skip empty
+          answers.push({ question_number: q, correct_answer: correctAnswer, accept_alternatives: alternatives });
+        }
+        if (answers.length) {
+          await saveCorrectAnswersForTopic(topic.id, answers);
+        }
+      }
+      overlay.remove();
+    } catch (e) {
+      alert('Chyba pri ukladaní: ' + e.message);
+      saveBtn.disabled = false;
+      saveBtn.textContent = '💾 Uložiť';
+    }
+  };
+}
+
+// === APPLY AI SCORE TO TOPIC SCORES ===
+async function applyAiScoreToTopicScores(sub, evals) {
+  // Find round and its topics
+  const { data: roundData } = await supabase
+    .from('rounds')
+    .select('id, name')
+    .eq('id', sub.round_id)
+    .single();
+  if (!roundData) throw new Error('Kolo nenájdené');
+
+  const { data: roundTopics } = await supabase
+    .from('round_topics')
+    .select('id, topic_order, max_points')
+    .eq('round_id', sub.round_id)
+    .order('topic_order');
+  if (!roundTopics || !roundTopics.length) throw new Error('Round topics nenájdené');
+
+  // Get team name
+  const { data: teamData } = await supabase
+    .from('teams')
+    .select('id, name')
+    .eq('id', sub.team_id)
+    .single();
+  if (!teamData) throw new Error('Tím nenájdený');
+
+  // Group evaluations by question number and compute score per topic
+  // Assumption: questions map sequentially across topics
+  // e.g. topic1 has maxPoints=5 (questions 1-5), topic2 has maxPoints=5 (questions 6-10)
+  let qOffset = 0;
+  for (const rt of roundTopics) {
+    const qCount = Math.ceil(rt.max_points || 5);
+    let topicScore = 0;
+    for (let q = 1; q <= qCount; q++) {
+      const globalQ = qOffset + q;
+      const ev = evals.find(e => e.question_number === globalQ);
+      if (ev) {
+        const isCorrect = ev.admin_override != null ? ev.admin_override_correct : ev.is_correct;
+        if (isCorrect) topicScore++;
+      }
+    }
+    qOffset += qCount;
+
+    // Upsert topic_score in DB
+    const { data: existing } = await supabase
+      .from('topic_scores')
+      .select('id')
+      .eq('team_id', sub.team_id)
+      .eq('round_topic_id', rt.id)
+      .maybeSingle();
+
+    if (existing) {
+      await supabase.from('topic_scores').update({ score: topicScore }).eq('id', existing.id);
+    } else {
+      await supabase.from('topic_scores').insert({ team_id: sub.team_id, round_topic_id: rt.id, score: topicScore });
+    }
+
+    // Update local state
+    const roundName = roundData.name;
+    const topicIdx = rt.topic_order;
+    const key = roundName + '::' + topicIdx;
+    if (!state.topicScores[teamData.name]) state.topicScores[teamData.name] = {};
+    state.topicScores[teamData.name][key] = topicScore;
+
+    // Update legacy flat score
+    if (!state.scores[teamData.name]) state.scores[teamData.name] = {};
+    // Recompute round total from all topic scores for this round
+    let roundTotal = 0;
+    roundTopics.forEach(rt2 => {
+      const k = roundName + '::' + rt2.topic_order;
+      roundTotal += (state.topicScores[teamData.name] && state.topicScores[teamData.name][k]) || 0;
+    });
+    state.scores[teamData.name][roundName] = roundTotal;
+  }
+}
+
+// === BATCH AI EVALUATION ===
+async function batchAiEvaluate() {
+  if (!state.isAdmin || !state.quizId) { alert('Najprv načítaj kvíz.'); return; }
+  const btn = document.getElementById('batchAiEvaluate');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Hľadám...'; }
+
+  try {
+    const { data: pending, error } = await supabase
+      .from('answer_submissions')
+      .select('id')
+      .eq('quiz_id', state.quizId)
+      .or('ai_status.eq.pending,ai_status.is.null')
+      .order('submitted_at');
+    if (error) throw error;
+    if (!pending || !pending.length) {
+      alert('Žiadne pending submissions na vyhodnotenie.');
+      return;
+    }
+
+    const total = pending.length;
+    for (let i = 0; i < total; i++) {
+      if (btn) btn.textContent = '⏳ Spracovávam ' + (i + 1) + '/' + total + '...';
+      try {
+        await supabase.functions.invoke('evaluate-submission', {
+          body: { submission_id: pending[i].id }
+        });
+      } catch (e) {
+        console.error('Batch AI error for submission ' + pending[i].id, e);
+      }
+    }
+    alert('Hotovo! Vyhodnotených: ' + total + ' submissions.');
+    await loadAndRenderSubmissions();
+  } catch (e) {
+    alert('Chyba pri batch AI: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🤖 AI: Vyhodnotiť všetky'; }
+  }
+}
+
+// Generate signed URL from Supabase Storage (private bucket)
+async function getSignedPhotoUrl(photoPath) {
+  if (!photoPath) return '';
+  try {
+    const { data, error } = await supabase.storage
+      .from('answer-sheets')
+      .createSignedUrl(photoPath, 3600); // 1 hodina
+    if (error) {
+      console.error('getSignedPhotoUrl error', error);
+      return '';
+    }
+    return data.signedUrl || '';
+  } catch (e) {
+    console.error('getSignedPhotoUrl exception', e);
+    return '';
+  }
+}
+
+// === CORRECT ANSWERS TAB MANAGEMENT ===
+async function loadAndRenderCorrectAnswers() {
+  if (!state.quizId) {
+    const el = document.getElementById('correctAnswersList');
+    if (el) el.innerHTML = '<p style="color:#aaa;">Najprv načítaj kvíz.</p>';
+    return;
+  }
+  const el = document.getElementById('correctAnswersList');
+  if (!el) return;
+
+  // Get rounds and their topics for this quiz
+  const { data: rounds } = await supabase
+    .from('rounds')
+    .select('id, name, round_order')
+    .eq('quiz_id', state.quizId)
+    .order('round_order');
+  
+  if (!rounds || !rounds.length) {
+    el.innerHTML = '<p style="color:#aaa;">Žiadne kolá v tomto kvíze.</p>';
+    return;
+  }
+
+  const roundIds = rounds.map(r => r.id);
+  const { data: roundTopics } = await supabase
+    .from('round_topics')
+    .select('id, round_id, category_id, topic_order, max_points')
+    .in('round_id', roundIds)
+    .order('topic_order');
+
+  // Get category names
+  const catIds = [...new Set((roundTopics || []).filter(rt => rt.category_id).map(rt => rt.category_id))];
+  let catMap = {};
+  if (catIds.length) {
+    const { data: cats } = await supabase.from('categories').select('id, name, icon').in('id', catIds);
+    (cats || []).forEach(c => { catMap[c.id] = c; });
+  }
+
+  // Get existing correct answers
+  const rtIds = (roundTopics || []).map(rt => rt.id);
+  let existingAnswers = [];
+  if (rtIds.length) {
+    const { data } = await supabase
+      .from('correct_answers')
+      .select('id, round_topic_id, question_number, correct_answer')
+      .in('round_topic_id', rtIds)
+      .order('question_number');
+    existingAnswers = data || [];
+  }
+
+  // Build UI
+  let html = '';
+  rounds.forEach(round => {
+    const topics = (roundTopics || []).filter(rt => rt.round_id === round.id).sort((a, b) => a.topic_order - b.topic_order);
+    html += `<div style="margin-bottom:20px; padding:16px; background:rgba(0,255,255,0.05); border:1px solid rgba(0,255,255,0.2); border-radius:12px;">`;
+    html += `<h3 style="color:#0ff; margin-top:0;">${escapeHtml(round.name)}</h3>`;
+    
+    topics.forEach(rt => {
+      const cat = catMap[rt.category_id];
+      const catName = cat ? `${cat.icon || ''} ${cat.name}` : 'Téma';
+      const maxQ = rt.max_points || 5;
+      const answers = existingAnswers.filter(a => a.round_topic_id === rt.id);
+      
+      html += `<div style="margin-bottom:12px; padding:10px; background:rgba(255,0,255,0.05); border-radius:8px;">`;
+      html += `<p style="color:#f0f; font-weight:bold; margin:0 0 8px;">${escapeHtml(catName)} (max ${maxQ} bodov / otázok)</p>`;
+      
+      for (let q = 1; q <= Math.ceil(maxQ); q++) {
+        const existing = answers.find(a => a.question_number === q);
+        const val = existing ? existing.correct_answer : '';
+        html += `<div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+          <span style="color:#aaa; min-width:24px;">${q}.</span>
+          <input type="text" class="neon-input correct-answer-input" 
+            data-rt-id="${rt.id}" data-question="${q}" data-existing-id="${existing ? existing.id : ''}"
+            value="${escapeHtml(val)}" 
+            placeholder="Správna odpoveď..."
+            style="flex:1; padding:6px 10px; font-size:0.9em;">
+        </div>`;
+      }
+      html += `</div>`;
+    });
+    html += `</div>`;
+  });
+
+  html += `<button id="saveCorrectAnswersBtn" class="neon-button" style="width:100%; padding:14px; font-size:1.1em; background:linear-gradient(135deg, #00c853, #00bfa5);">💾 Uložiť odpovede</button>`;
+  el.innerHTML = html;
+
+  // Save button
+  document.getElementById('saveCorrectAnswersBtn')?.addEventListener('click', saveCorrectAnswers);
+}
+
+async function saveCorrectAnswers() {
+  const inputs = document.querySelectorAll('.correct-answer-input');
+  const toUpsert = [];
+  const toDelete = [];
+  
+  inputs.forEach(input => {
+    const rtId = input.dataset.rtId;
+    const questionNum = parseInt(input.dataset.question);
+    const existingId = input.dataset.existingId;
+    const value = input.value.trim();
+    
+    if (value) {
+      toUpsert.push({
+        id: existingId || undefined,
+        round_topic_id: rtId,
+        question_number: questionNum,
+        correct_answer: value
+      });
+    } else if (existingId) {
+      toDelete.push(existingId);
+    }
+  });
+
+  try {
+    // Delete removed answers
+    if (toDelete.length) {
+      await supabase.from('correct_answers').delete().in('id', toDelete);
+    }
+
+    // Upsert answers (with id = update, without = insert)
+    for (const ans of toUpsert) {
+      if (ans.id) {
+        await supabase.from('correct_answers')
+          .update({ correct_answer: ans.correct_answer })
+          .eq('id', ans.id);
+      } else {
+        delete ans.id;
+        await supabase.from('correct_answers').insert(ans);
+      }
+    }
+
+    alert('Odpovede uložené! ✅');
+    await loadAndRenderCorrectAnswers();
+  } catch (e) {
+    alert('Chyba pri ukladaní: ' + e.message);
   }
 }
 

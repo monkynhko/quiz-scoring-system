@@ -437,10 +437,11 @@
                     .upload(filePath, selectedFile, { contentType: selectedFile.type });
                 if (uploadErr) throw new Error('Upload zlyhal: ' + uploadErr.message);
 
-                // 2. Get public URL
-                const { data: urlData } = sb.storage
+                // 2. Get signed URL for preview (private bucket)
+                const { data: signedData } = await sb.storage
                     .from('answer-sheets')
-                    .getPublicUrl(filePath);
+                    .createSignedUrl(filePath, 3600); // 1 hour validity
+                const photoUrl = signedData?.signedUrl || '';
 
                 // 3. Insert record
                 const { error: insertErr } = await sb
@@ -449,7 +450,7 @@
                         quiz_id: quizId,
                         team_id: teamId,
                         round_id: roundId,
-                        photo_url: urlData.publicUrl,
+                        photo_url: photoUrl,
                         photo_path: filePath,
                         submitted_by: 'Tím upload'
                     });
