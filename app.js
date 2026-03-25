@@ -158,12 +158,9 @@ const elements = {
   exportQuiz: document.getElementById('exportQuiz'),
   tabButtons: document.querySelectorAll('.tab-button'),
   tabContents: document.querySelectorAll('.tab-content'),
-  quizStats: {
-    topScore: document.getElementById('topScore'),
-    easiestRound: document.getElementById('easiestRound'),
-    hardestRound: document.getElementById('hardestRound'),
-    bestRound: document.getElementById('bestRound')
-  },
+  quizStatsGrid: document.getElementById('quizStatsGrid'),
+  topicBarCharts: document.getElementById('topicBarCharts'),
+  questionBarCharts: document.getElementById('questionBarCharts'),
   // Submissions tab
   submissionsList: document.getElementById('submissionsList'),
   submissionsRoundFilter: document.getElementById('submissionsRoundFilter'),
@@ -1298,51 +1295,385 @@ function updateQuizNameDisplay() {
   el.textContent = state.title || '';
 }
 
-function updateQuizStats() {
-  if (!elements.quizStats) return;
-  const { topScore, easiestRound, hardestRound, bestRound } = elements.quizStats;
+async function updateQuizStats() {
+  const grid = elements.quizStatsGrid;
+  const topicCharts = elements.topicBarCharts;
+  const questionCharts = elements.questionBarCharts;
+  if (!grid) return;
+  
   if (!state.teams.length || !state.rounds.length) {
-    if (topScore) topScore.textContent = '-';
-    if (easiestRound) easiestRound.textContent = '-';
-    if (hardestRound) hardestRound.textContent = '-';
-    if (bestRound) bestRound.textContent = '-';
+    grid.innerHTML = '<p style="color:#aaa;">Pridaj tímy a kolá.</p>';
+    if (topicCharts) topicCharts.innerHTML = '';
+    if (questionCharts) questionCharts.innerHTML = '';
     return;
   }
-  // Top score
+  
+  // === BASIC STATS (from state — always available) ===
   let maxScore = -Infinity, maxTeam = '';
   state.teams.forEach(team => {
     const total = Object.values(state.scores[team] || {}).reduce((a, b) => a + b, 0);
-    if (total > maxScore) {
-      maxScore = total;
-      maxTeam = team;
-    }
+    if (total > maxScore) { maxScore = total; maxTeam = team; }
   });
-  if (topScore) topScore.textContent = `${maxTeam} (${maxScore})`;
-  // Easiest/hardest round (najvyšší/priemerný priemer na kolo)
-  let easiest = -Infinity, hardest = Infinity, best = -Infinity;
-  let easiestName = '', hardestName = '', bestName = '';
+  
+  let easiest = -Infinity, hardest = Infinity;
+  let easiestName = '', hardestName = '';
+  let roundWinners = [];
   state.rounds.forEach(round => {
     let sum = 0;
+    let bestTeams = [], bestScore = -1;
     state.teams.forEach(team => {
-      sum += state.scores[team][round.name] || 0;
+      const s = (state.scores[team] && state.scores[team][round.name]) || 0;
+      sum += s;
+      if (s > bestScore) { bestScore = s; bestTeams = [team]; }
+      else if (s === bestScore && s > 0) bestTeams.push(team);
     });
     const avg = sum / state.teams.length;
-    if (avg > easiest) {
-      easiest = avg;
-      easiestName = round.name;
-    }
-    if (avg < hardest) {
-      hardest = avg;
-      hardestName = round.name;
-    }
-    if (sum > best) {
-      best = sum;
-      bestName = round.name;
+    if (avg > easiest) { easiest = avg; easiestName = round.name; }
+    if (avg < hardest) { hardest = avg; hardestName = round.name; }
+    if (bestTeams.length && bestScore > 0) {
+      roundWinners.push({ round: round.name, teams: bestTeams, score: bestScore });
     }
   });
-  if (easiestRound) easiestRound.textContent = `${easiestName} (${easiest.toFixed(2)})`;
-  if (hardestRound) hardestRound.textContent = `${hardestName} (${hardest.toFixed(2)})`;
-  if (bestRound) bestRound.textContent = `${bestName} (${best})`;
+  
+  // === CATEGORY STATS (from state.topicScores) ===
+  let categoryStats = {};
+  state.rounds.forEach(round => {
+    const topics = round.topics || state.roundTopics[round.name] || [];
+    topics.forEach((t, idx) => {
+      const catName = t.customName || t.categoryName || '?';
+      const catIcon = t.categoryIcon || '';
+      const maxPts = t.maxPoints || 5;
+      if (!categoryStats[catName]) categoryStats[catName] = { icon: catIcon, totalScore: 0, maxPossible: 0, teamScores: {} };
+      categoryStats[catName].maxPossible += maxPts * state.teams.length;
+      state.teams.forEach(team => {
+        const key = round.name + '::' + (idx + 1);
+        const score = (state.topicScores[team] && state.topicScores[team][key]) || 0;
+        categoryStats[catName].totalScore += score;
+        if (!categoryStats[catName].teamScores[team]) categoryStats[catName].teamScores[team] = 0;
+        categoryStats[catName].teamScores[team] += score;
+      });
+    });
+  });
+  
+  // Build HTML — start with basic stat cards
+  let html = '';
+  
+  // Top Score
+  html += `<div class="detail-stat-card">
+    <h4>🏆 Top Score</h4>
+    <div class="stat-value">${escapeHtml(maxTeam)}</div>
+    <div class="stat-sub">${maxScore} bodov celkovo</div>
+  </div>`;
+  
+  // Najľahšie kolo
+  html += `<div class="detail-stat-card">
+    <h4>😎 Najľahšie kolo</h4>
+    <div class="stat-value">${escapeHtml(easiestName)}</div>
+    <div class="stat-sub">Priemer: ${easiest.toFixed(1)} bodov</div>
+  </div>`;
+  
+  // Najťažšie kolo
+  html += `<div class="detail-stat-card">
+    <h4>💀 Najťažšie kolo</h4>
+    <div class="stat-value">${escapeHtml(hardestName)}</div>
+    <div class="stat-sub">Priemer: ${hardest === Infinity ? '0' : hardest.toFixed(1)} bodov</div>
+  </div>`;
+  
+  // === AI STATS (fetch from DB if available) ===
+  let hasAiStats = false;
+  if (mode === 'supabase' && state.quizId) {
+    try {
+      // Fetch completed submissions
+      const { data: submissions } = await supabase
+        .from('answer_submissions')
+        .select('id, team_id, round_id, ai_status, ai_score, ai_max_score')
+        .eq('quiz_id', state.quizId)
+        .eq('ai_status', 'completed');
+      
+      if (submissions && submissions.length > 0) {
+        hasAiStats = true;
+        const subIds = submissions.map(s => s.id);
+        
+        // Fetch all evaluations
+        const { data: allEvals } = await supabase
+          .from('ai_evaluations')
+          .select('submission_id, question_number, ocr_text, correct_answer, is_correct, confidence, admin_override, admin_override_correct')
+          .in('submission_id', subIds)
+          .order('question_number');
+        
+        if (allEvals && allEvals.length > 0) {
+          // Build maps
+          const subMap = {};
+          submissions.forEach(s => { subMap[s.id] = s; });
+          
+          const teamIds = [...new Set(submissions.map(s => s.team_id))];
+          const roundIds = [...new Set(submissions.map(s => s.round_id))];
+          let teamMap = {}, roundMap = {};
+          
+          if (teamIds.length) {
+            const { data: teams } = await supabase.from('teams').select('id, name').in('id', teamIds);
+            (teams || []).forEach(t => { teamMap[t.id] = t.name; });
+          }
+          if (roundIds.length) {
+            const { data: rounds } = await supabase.from('rounds').select('id, name, round_order').in('id', roundIds);
+            (rounds || []).forEach(r => { roundMap[r.id] = r; });
+          }
+          
+          // Fetch round_topics + categories for question labels
+          let rtMap = {}, catMap = {};
+          if (roundIds.length) {
+            const { data: rts } = await supabase.from('round_topics')
+              .select('id, round_id, category_id, topic_order, max_points')
+              .in('round_id', roundIds).order('topic_order');
+            (rts || []).forEach(rt => {
+              if (!rtMap[rt.round_id]) rtMap[rt.round_id] = [];
+              rtMap[rt.round_id].push(rt);
+            });
+            const catIds = [...new Set((rts || []).filter(r => r.category_id).map(r => r.category_id))];
+            if (catIds.length) {
+              const { data: cats } = await supabase.from('categories').select('id, name, icon').in('id', catIds);
+              (cats || []).forEach(c => { catMap[c.id] = c; });
+            }
+          }
+          
+          // Question label builder
+          function getQuestionLabel(roundId, globalQ) {
+            const topics = rtMap[roundId] || [];
+            let offset = 0;
+            for (const rt of topics) {
+              const qCount = rt.max_points || 5;
+              if (globalQ <= offset + qCount) {
+                const localQ = globalQ - offset;
+                const cat = catMap[rt.category_id];
+                return (cat ? cat.name : 'Téma ' + rt.topic_order) + ' #' + localQ;
+              }
+              offset += qCount;
+            }
+            return 'Otázka ' + globalQ;
+          }
+          
+          // Aggregate per-question stats
+          const questionStats = {};
+          const teamAiStats = {};
+          let totalCorrect = 0, totalAnswers = 0, totalConfidence = 0;
+          
+          allEvals.forEach(ev => {
+            const sub = subMap[ev.submission_id];
+            if (!sub) return;
+            const key = sub.round_id + '::' + ev.question_number;
+            
+            // Determine correctness (admin override takes priority)
+            let isCorrect;
+            if (ev.admin_override_correct !== null && ev.admin_override_correct !== undefined) {
+              isCorrect = ev.admin_override_correct;
+            } else if (ev.admin_override !== null && ev.admin_override !== undefined) {
+              isCorrect = ev.admin_override;
+            } else {
+              isCorrect = ev.is_correct;
+            }
+            
+            if (!questionStats[key]) {
+              const roundInfo = roundMap[sub.round_id];
+              questionStats[key] = {
+                correct: 0, total: 0, label: getQuestionLabel(sub.round_id, ev.question_number),
+                roundName: roundInfo ? roundInfo.name : '?', correctAnswer: ev.correct_answer || '',
+                confSum: 0
+              };
+            }
+            questionStats[key].total++;
+            questionStats[key].confSum += (ev.confidence || 0);
+            if (isCorrect) questionStats[key].correct++;
+            
+            // Team AI stats
+            if (!teamAiStats[sub.team_id]) {
+              teamAiStats[sub.team_id] = { correct: 0, total: 0, confSum: 0, confCount: 0, name: teamMap[sub.team_id] || '?' };
+            }
+            teamAiStats[sub.team_id].total++;
+            teamAiStats[sub.team_id].confSum += (ev.confidence || 0);
+            teamAiStats[sub.team_id].confCount++;
+            if (isCorrect) teamAiStats[sub.team_id].correct++;
+            
+            totalAnswers++;
+            totalConfidence += (ev.confidence || 0);
+            if (isCorrect) totalCorrect++;
+          });
+          
+          // Compute derived stats
+          const sortedQuestions = Object.values(questionStats).map(q => ({
+            ...q, pct: q.total > 0 ? Math.round((q.correct / q.total) * 100) : 0,
+            avgConf: q.total > 0 ? Math.round(q.confSum / q.total) : 0
+          })).sort((a, b) => b.pct - a.pct);
+          
+          const easiestQ = sortedQuestions.length ? sortedQuestions[0] : null;
+          const hardestQ = sortedQuestions.length ? sortedQuestions[sortedQuestions.length - 1] : null;
+          const perfectQs = sortedQuestions.filter(q => q.pct === 100 && q.total > 1).length;
+          const zeroQs = sortedQuestions.filter(q => q.pct === 0).length;
+          const overallPct = totalAnswers > 0 ? Math.round((totalCorrect / totalAnswers) * 100) : 0;
+          const avgConf = totalAnswers > 0 ? Math.round(totalConfidence / totalAnswers) : 0;
+          
+          // Team confidence ranking
+          const teamsByConf = Object.values(teamAiStats)
+            .filter(t => t.confCount > 0)
+            .sort((a, b) => (a.confSum / a.confCount) - (b.confSum / b.confCount));
+          const worstHandwriting = teamsByConf.length ? teamsByConf[0] : null;
+          const bestHandwriting = teamsByConf.length > 1 ? teamsByConf[teamsByConf.length - 1] : null;
+          
+          // AI stat cards
+          html += `<div class="detail-stat-card">
+            <h4>🤖 Celková AI úspešnosť</h4>
+            <div class="stat-value">${overallPct}%</div>
+            <div class="stat-sub">${totalCorrect}/${totalAnswers} správnych | ${submissions.length} vyhodnotení</div>
+          </div>`;
+          
+          if (easiestQ) {
+            html += `<div class="detail-stat-card">
+              <h4>🎯 Najľahšia otázka</h4>
+              <div class="stat-value">${escapeHtml(easiestQ.label)}</div>
+              <div class="stat-sub">${easiestQ.pct}% tímov správne (${easiestQ.correct}/${easiestQ.total})</div>
+              <div class="stat-sub">Odpoveď: <strong style="color:#00e676;">${escapeHtml(easiestQ.correctAnswer)}</strong></div>
+            </div>`;
+          }
+          
+          if (hardestQ) {
+            html += `<div class="detail-stat-card">
+              <h4>💀 Najťažšia otázka</h4>
+              <div class="stat-value">${escapeHtml(hardestQ.label)}</div>
+              <div class="stat-sub">${hardestQ.pct}% tímov správne (${hardestQ.correct}/${hardestQ.total})</div>
+              <div class="stat-sub">Odpoveď: <strong style="color:#ff5252;">${escapeHtml(hardestQ.correctAnswer)}</strong></div>
+            </div>`;
+          }
+          
+          html += `<div class="detail-stat-card">
+            <h4>🔥 Perfektné vs Nulové</h4>
+            <div class="stat-value"><span style="color:#00e676;">${perfectQs} 🔥</span> <span style="color:#aaa;">|</span> <span style="color:#ff5252;">${zeroQs} 💀</span></div>
+            <div class="stat-sub">Otázky kde všetci správne vs nikto</div>
+          </div>`;
+          
+          html += `<div class="detail-stat-card">
+            <h4>🤖 AI Confidence (OCR)</h4>
+            <div class="stat-value">${avgConf}%</div>
+            <div class="stat-sub">${avgConf > 90 ? 'Výborná čitateľnosť' : avgConf > 70 ? 'Dobrá čitateľnosť' : 'Slabá čitateľnosť'}</div>
+          </div>`;
+          
+          if (worstHandwriting) {
+            const wConf = Math.round(worstHandwriting.confSum / worstHandwriting.confCount);
+            html += `<div class="detail-stat-card">
+              <h4>✍️ Najnečitateľnejší tím</h4>
+              <div class="stat-value">${escapeHtml(worstHandwriting.name)}</div>
+              <div class="stat-sub">AI confidence: ${wConf}%</div>
+            </div>`;
+          }
+          if (bestHandwriting) {
+            const bConf = Math.round(bestHandwriting.confSum / bestHandwriting.confCount);
+            html += `<div class="detail-stat-card">
+              <h4>🏆 Najčitateľnejší tím</h4>
+              <div class="stat-value">${escapeHtml(bestHandwriting.name)}</div>
+              <div class="stat-sub">AI confidence: ${bConf}%</div>
+            </div>`;
+          }
+          
+          // === TOPIC BAR CHARTS ===
+          const topicAggregated = {};
+          sortedQuestions.forEach(q => {
+            const topicName = q.label.split(' #')[0];
+            if (!topicAggregated[topicName]) topicAggregated[topicName] = { correct: 0, total: 0 };
+            topicAggregated[topicName].correct += q.correct;
+            topicAggregated[topicName].total += q.total;
+          });
+          const sortedTopics = Object.entries(topicAggregated)
+            .map(([name, s]) => ({ name, pct: s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0 }))
+            .sort((a, b) => b.pct - a.pct);
+          
+          if (sortedTopics.length > 1 && topicCharts) {
+            let tHtml = '<h3 style="color:#ffd700; margin-bottom:12px;">📊 Úspešnosť podľa témy (AI)</h3>';
+            sortedTopics.forEach(t => {
+              const barColor = t.pct > 70 ? '#00e676' : t.pct >= 40 ? '#ffd600' : '#ff5252';
+              tHtml += `<div class="question-bar">
+                <span class="bar-label">${escapeHtml(t.name)}</span>
+                <div class="bar-bg"><div class="bar-fill" style="width:${t.pct}%;background:${barColor};"></div></div>
+                <span class="bar-pct">${t.pct}%</span>
+              </div>`;
+            });
+            topicCharts.innerHTML = tHtml;
+          }
+          
+          // === QUESTION BAR CHARTS ===
+          if (questionCharts) {
+            let qHtml = '<h3 style="color:#ffd700; margin-bottom:12px;">❓ Úspešnosť podľa otázky (AI)</h3>';
+            const questionsByRound = {};
+            sortedQuestions.forEach(q => {
+              if (!questionsByRound[q.roundName]) questionsByRound[q.roundName] = [];
+              questionsByRound[q.roundName].push(q);
+            });
+            Object.entries(questionsByRound).forEach(([roundName, questions]) => {
+              qHtml += `<p style="color:#0ff; font-weight:600; margin:12px 0 6px;">${escapeHtml(roundName)}</p>`;
+              questions.sort((a, b) => {
+                const aNum = parseInt(a.label.match(/#(\d+)/)?.[1] || '0');
+                const bNum = parseInt(b.label.match(/#(\d+)/)?.[1] || '0');
+                return aNum - bNum;
+              });
+              questions.forEach(q => {
+                const barColor = q.pct > 70 ? '#00e676' : q.pct >= 40 ? '#ffd600' : '#ff5252';
+                qHtml += `<div class="question-bar">
+                  <span class="bar-label">${escapeHtml(q.label)} <span style="color:#666;font-size:0.85em;">(${escapeHtml(q.correctAnswer)})</span></span>
+                  <div class="bar-bg"><div class="bar-fill" style="width:${q.pct}%;background:${barColor};"></div></div>
+                  <span class="bar-pct">${q.pct}%</span>
+                </div>`;
+              });
+            });
+            questionCharts.innerHTML = qHtml;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('AI stats load error:', err);
+    }
+  }
+  
+  // === CATEGORY STATS CARDS (from state — always available) ===
+  const catEntries = Object.entries(categoryStats);
+  if (catEntries.length) {
+    catEntries.sort((a, b) => {
+      const pctA = a[1].maxPossible > 0 ? a[1].totalScore / a[1].maxPossible : 0;
+      const pctB = b[1].maxPossible > 0 ? b[1].totalScore / b[1].maxPossible : 0;
+      return pctB - pctA;
+    });
+    catEntries.forEach(([catName, catData]) => {
+      const pct = catData.maxPossible > 0 ? Math.round((catData.totalScore / catData.maxPossible) * 100) : 0;
+      const numTeams = Object.keys(catData.teamScores).length || 1;
+      const avgPerTeam = (catData.totalScore / numTeams).toFixed(1);
+      const maxPerTeam = (catData.maxPossible / numTeams).toFixed(0);
+      // Find winner(s)
+      let bestScore = -1;
+      Object.values(catData.teamScores).forEach(s => { if (s > bestScore) bestScore = s; });
+      const winners = Object.entries(catData.teamScores).filter(([, s]) => s === bestScore).map(([t]) => t);
+      const winnerText = winners.length === 1 ? winners[0] : winners.join(', ');
+      
+      html += `<div class="detail-stat-card">
+        <h4>${escapeHtml(catData.icon)} ${escapeHtml(catName)}</h4>
+        <div style="background:#222; border-radius:6px; height:12px; margin:8px 0; overflow:hidden;">
+          <div style="background:linear-gradient(90deg,#0ff,#ff00ff); height:100%; width:${pct}%; border-radius:6px; transition:width 0.5s;"></div>
+        </div>
+        <div class="stat-sub">Priemer: ${avgPerTeam} / ${maxPerTeam}</div>
+        <div class="stat-sub">🏆 ${bestScore > 0 ? escapeHtml(winnerText) + ' (' + bestScore + ')' : '-'}</div>
+      </div>`;
+    });
+  }
+  
+  // === ROUND WINNERS ===
+  if (roundWinners.length) {
+    html += '<div style="grid-column: 1 / -1; margin-top:8px;"><h3 style="color:#ffd700; margin-bottom:12px;">🏆 Víťazi kôl</h3><div style="display:flex; flex-wrap:wrap; gap:10px;">';
+    roundWinners.forEach((rw, idx) => {
+      html += `<div style="background:#1a1333; border:1px solid #333; border-radius:10px; padding:10px 16px; text-align:center; min-width:120px;">
+        <div style="font-size:0.85em; color:#aaa;">${idx + 1}. kolo</div>
+        ${rw.teams.map(t => '<div style="font-weight:bold; color:#fff;">' + escapeHtml(t) + '</div>').join('')}
+        <div style="color:#ffd700; font-weight:bold;">${rw.score} b.</div>
+      </div>`;
+    });
+    html += '</div></div>';
+  }
+  
+  grid.innerHTML = html;
 }
 
 // === SUBMISSIONS (photo review) ===
@@ -2153,6 +2484,7 @@ function switchTab(tab) {
   });
   if (tab === 'leaderboard') {
     updateLeaderboard();
+    updateQuizStats();
   }
   if (tab === 'submissions') {
     loadAndRenderSubmissions();
