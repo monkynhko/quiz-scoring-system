@@ -278,7 +278,7 @@ async function saveQuizToSupabase() {
       .single();
     if (quizErr) {
       alert('Chyba pri ukladaní quizu: ' + quizErr.message);
-      return;
+      throw new Error('Quiz insert failed');
     }
     quizId = quiz.id;
     state.quizId = quizId;
@@ -310,7 +310,7 @@ async function saveQuizToSupabase() {
   let insertedTeams = [];
   if (teamsToInsert.length) {
     const { data: tIns, error: tErr } = await supabase.from('teams').insert(teamsToInsert).select('id, name');
-    if (tErr) { alert('Chyba pri ukladaní tímov: ' + tErr.message); return; }
+    if (tErr) { alert('Chyba pri ukladaní tímov: ' + tErr.message); throw new Error('Teams insert failed'); }
     insertedTeams = tIns || [];
   }
   // Build full teams list (existing kept + newly inserted)
@@ -367,7 +367,7 @@ async function saveQuizToSupabase() {
   if (roundsToInsert.length) {
     const payload = roundsToInsert.map(r => ({ quiz_id: r.quiz_id, name: r.name, round_order: r.round_order }));
     const { data: rIns, error: rErr } = await supabase.from('rounds').insert(payload).select('id, name, round_order');
-    if (rErr) { alert('Chyba pri ukladaní kôl: ' + rErr.message); return; }
+    if (rErr) { alert('Chyba pri ukladaní kôl: ' + rErr.message); throw new Error('Rounds insert failed'); }
     insertedRounds = rIns || [];
   }
 
@@ -456,7 +456,7 @@ async function saveQuizToSupabase() {
   if (rtToInsert.length) {
     const payload = rtToInsert.map(rt => ({ round_id: rt.round_id, category_id: rt.category_id, topic_order: rt.topic_order, max_points: rt.max_points }));
     const { data: rtIns, error: rtErr } = await supabase.from('round_topics').insert(payload).select('id, round_id, category_id, topic_order, max_points');
-    if (rtErr) { alert('Chyba pri ukladaní tém kôl: ' + rtErr.message); return; }
+    if (rtErr) { alert('Chyba pri ukladaní tém kôl: ' + rtErr.message); throw new Error('Round topics insert failed'); }
     // Assign IDs back to state topics
     (rtIns || []).forEach((inserted, i) => {
       const meta = rtToInsert[i];
@@ -484,6 +484,8 @@ async function saveQuizToSupabase() {
           .eq('round_topic_id', rt.id)
           .maybeSingle();
         if (existing) {
+          // Ak state má 0 ale DB má nenulový score (pravdepodobne od AI) — NEMEŇ
+          if (score === 0 && existing.score > 0) continue;
           if (existing.score !== score) {
             await supabase.from('topic_scores').update({ score }).eq('id', existing.id);
           }
@@ -506,6 +508,8 @@ async function saveQuizToSupabase() {
         .eq('round_id', sr.id)
         .maybeSingle();
       if (existing) {
+        // Ak state má 0 ale DB má nenulový score (pravdepodobne od AI) — NEMEŇ
+        if (score === 0 && existing.score > 0) continue;
         if (existing.score !== score) {
           await supabase.from('scores').update({ score }).eq('id', existing.id);
         }
@@ -587,7 +591,7 @@ async function loadQuizById(quizId) {
     .from('teams')
     .select('id, name')
     .eq('quiz_id', quizId);
-  state.teams = teams.map(t => t.name);
+  state.teams = (teams || []).map(t => t.name);
   // 3. Rounds
   const { data: rounds } = await supabase
     .from('rounds')
@@ -1832,9 +1836,22 @@ async function updateSubmissionStatus(id, status) {
   if (mode !== 'supabase') return;
   if (!state.isAdmin) { alert('Iba admin môže meniť status.'); return; }
   const userId = state.user ? state.user.id : null;
+  const updatePayload = { status, reviewed_at: new Date().toISOString(), reviewed_by: userId };
+  // Ak resetujeme na pending, vyčisti aj AI polia
+  if (status === 'pending') {
+    updatePayload.ai_status = 'pending';
+    updatePayload.ai_score = null;
+    updatePayload.ai_max_score = null;
+    updatePayload.ai_error = null;
+    updatePayload.ai_processed_at = null;
+    updatePayload.reviewed_at = null;
+    updatePayload.reviewed_by = null;
+    // Vymaž staré AI evaluations
+    await supabase.from('ai_evaluations').delete().eq('submission_id', id);
+  }
   const { error } = await supabase
     .from('answer_submissions')
-    .update({ status, reviewed_at: new Date().toISOString(), reviewed_by: userId })
+    .update(updatePayload)
     .eq('id', id);
   if (error) {
     alert('Chyba pri zmene statusu: ' + error.message);
@@ -2312,15 +2329,17 @@ async function batchAiEvaluate() {
     }
 
     const total = pending.length;
-    for (let i = 0; i < total; i++) {
-      if (btn) btn.textContent = '⏳ Spracovávam ' + (i + 1) + '/' + total + '...';
-      try {
-        await supabase.functions.invoke('evaluate-submission', {
-          body: { submission_id: pending[i].id }
-        });
-      } catch (e) {
-        console.error('Batch AI error for submission ' + pending[i].id, e);
-      }
+    const CONCURRENCY = 3;
+    for (let i = 0; i < total; i += CONCURRENCY) {
+      const batch = pending.slice(i, i + CONCURRENCY);
+      if (btn) btn.textContent = '⏳ Spracovávam ' + Math.min(i + CONCURRENCY, total) + '/' + total + '...';
+      await Promise.allSettled(
+        batch.map(sub =>
+          supabase.functions.invoke('evaluate-submission', {
+            body: { submission_id: sub.id }
+          }).catch(e => console.error('Batch AI error for submission ' + sub.id, e))
+        )
+      );
     }
     alert('Hotovo! Vyhodnotených: ' + total + ' submissions.');
     await loadAndRenderSubmissions();
