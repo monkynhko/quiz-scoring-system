@@ -559,6 +559,19 @@ section h2 {
     outline: none;
     border-color: #0ff;
 }
+.sub-filter-btn {
+    opacity: 0.6;
+    border: 1px solid transparent;
+    transition: opacity 0.2s, border-color 0.2s;
+}
+.sub-filter-btn.active {
+    opacity: 1;
+    border-color: #0ff;
+    box-shadow: 0 0 8px rgba(0,255,255,0.3);
+}
+.sub-filter-btn:hover {
+    opacity: 0.9;
+}
 .submissions-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
