@@ -1659,19 +1659,40 @@ async function showSubmissionDetail(sub, teamMap, roundMap) {
     confirmBtn.textContent = `☑️ Potvrdiť AI skóre → zapísať body`;
     confirmBtn.style = 'background: linear-gradient(135deg, #00c853, #00bfa5); margin-top:8px; width:100%;';
     confirmBtn.addEventListener('click', async () => {
-      // Write AI score to score_override and mark as reviewed
-      const { error } = await supabase
-        .from('answer_submissions')
-        .update({ score_override: aiScore, status: 'reviewed', reviewed_at: new Date().toISOString(), reviewed_by: state.user?.id })
-        .eq('id', sub.id);
-      if (error) {
-        alert('Chyba: ' + error.message);
-      } else {
-        sub.status = 'reviewed';
-        sub.score_override = aiScore;
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = '⏳ Zapisujem body...';
+      try {
+        // 1. Load fresh AI evaluations
+        const { data: evals, error: evErr } = await supabase
+          .from('ai_evaluations')
+          .select('*')
+          .eq('submission_id', sub.id)
+          .order('question_number');
+        if (evErr) throw new Error('Chyba načítania evaluations: ' + evErr.message);
+        if (!evals || !evals.length) throw new Error('Žiadne AI evaluations pre túto submission');
+
+        // 2. Call applyAiScoreToTopicScores — writes to topic_scores + scores + marks reviewed
+        await applyAiScoreToTopicScores(sub, evals);
+
+        // 3. Close modal and refresh UI
         elements.submissionModal.style.display = 'none';
+        updateScoreboard();
+        updateLeaderboard();
         await loadAndRenderSubmissions();
-        alert('Body zapísané! Skóre: ' + aiScore + '/' + aiMax);
+
+        // Calculate final score for alert
+        let totalCorrect = 0;
+        evals.forEach(ev => {
+          const isCorrect = ev.admin_override !== null && ev.admin_override !== undefined
+            ? ev.admin_override
+            : ev.is_correct;
+          if (isCorrect) totalCorrect++;
+        });
+        alert('Body zapísané! Skóre: ' + totalCorrect + '/' + evals.length);
+      } catch (e) {
+        alert('Chyba pri zapisovaní bodov: ' + e.message);
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = '☑️ Potvrdiť AI skóre → zapísať body';
       }
     });
     aiSection.appendChild(confirmBtn);
