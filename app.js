@@ -138,7 +138,9 @@ const state = {
   roundTopics: {},   // { roundName: [{ id, categoryId, categoryName, categoryIcon, topicOrder, maxPoints, customName }] }
   categories: [],    // [{ id, name, icon }]
   quizzes: [],
-  currentTab: 'scoring'
+  currentTab: 'scoring',
+  submitWindowInterval: null,
+  submitWindowData: null
 };
 
 const elements = {
@@ -169,7 +171,9 @@ const elements = {
   submissionModalImg: document.getElementById('submissionModalImg'),
   submissionModalInfo: document.getElementById('submissionModalInfo'),
   submissionModalActions: document.getElementById('submissionModalActions'),
-  closeSubmissionModal: document.getElementById('closeSubmissionModal')
+  closeSubmissionModal: document.getElementById('closeSubmissionModal'),
+  submitControlPanel: document.getElementById('submitControlPanel'),
+  submitWindowStatus: document.getElementById('submitWindowStatus')
 };
 
 // === AUTENTIFIKÁCIA ADMINA ===
@@ -703,6 +707,10 @@ async function loadQuizById(quizId) {
   updateLeaderboard();
   updateQuizStats();
   updateQuizNameDisplay();
+  // Render submit window control if on submissions tab
+  if (state.currentTab === 'submissions') {
+    renderSubmitWindowControl();
+  }
 }
 
 // === FETCH NAJNOVŠIEHO LEADERBOARDU (public) ===
@@ -1858,6 +1866,283 @@ async function updateSubmissionStatus(id, status) {
   }
 }
 
+// === SUBMIT WINDOW CONTROL ===
+async function openSubmitWindow() {
+  if (!state.isAdmin || !state.quizId) return;
+  
+  // Build round selection
+  const { data: rounds } = await supabase
+    .from('rounds')
+    .select('id, name, round_order')
+    .eq('quiz_id', state.quizId)
+    .order('round_order');
+  
+  if (!rounds || !rounds.length) {
+    alert('Najprv pridaj kolá do kvízu.');
+    return;
+  }
+  
+  // Modal for round + duration selection
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.style = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;z-index:10001;';
+  
+  const box = document.createElement('div');
+  box.style = 'background:#1a1333;border:1px solid rgba(255,0,255,0.3);border-radius:16px;padding:24px;max-width:400px;width:90%;';
+  
+  let roundOptions = rounds.map(r => 
+    `<option value="${r.id}">${escapeHtml(r.name)}</option>`
+  ).join('');
+  
+  box.innerHTML = `
+    <h3 style="color:#0ff;margin-bottom:16px;">🔓 Otvoriť Submit Okno</h3>
+    <div style="margin-bottom:12px;">
+      <label style="color:#0ff;display:block;margin-bottom:4px;font-size:0.9em;">Kolo:</label>
+      <select id="submitWindowRound" class="neon-input" style="width:100%;padding:10px;">
+        ${roundOptions}
+      </select>
+    </div>
+    <div style="margin-bottom:16px;">
+      <label style="color:#0ff;display:block;margin-bottom:4px;font-size:0.9em;">Trvanie (sekundy):</label>
+      <input type="number" id="submitWindowDuration" class="neon-input" value="120" min="30" max="600" style="width:100%;padding:10px;">
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button id="confirmOpenSubmit" class="neon-button" style="flex:1;background:linear-gradient(135deg,#00c853,#00bfa5);">🔓 Otvoriť</button>
+      <button id="cancelOpenSubmit" class="neon-button" style="flex:1;background:#555;">Zrušiť</button>
+    </div>
+  `;
+  
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  
+  box.querySelector('#cancelOpenSubmit').onclick = () => overlay.remove();
+  box.querySelector('#confirmOpenSubmit').onclick = async () => {
+    const roundId = box.querySelector('#submitWindowRound').value;
+    const duration = parseInt(box.querySelector('#submitWindowDuration').value) || 120;
+    
+    const closesAt = new Date(Date.now() + duration * 1000).toISOString();
+    
+    const { error } = await supabase
+      .from('quizzes')
+      .update({
+        submit_open: true,
+        submit_round_id: roundId,
+        submit_closes_at: closesAt
+      })
+      .eq('id', state.quizId);
+    
+    if (error) {
+      alert('Chyba: ' + error.message);
+      return;
+    }
+    
+    overlay.remove();
+    renderSubmitWindowControl();
+  };
+}
+
+async function closeSubmitWindow() {
+  if (!state.isAdmin || !state.quizId) return;
+  
+  const { error } = await supabase
+    .from('quizzes')
+    .update({
+      submit_open: false,
+      submit_round_id: null,
+      submit_closes_at: null
+    })
+    .eq('id', state.quizId);
+  
+  if (error) {
+    alert('Chyba: ' + error.message);
+    return;
+  }
+  
+  if (state.submitWindowInterval) {
+    clearInterval(state.submitWindowInterval);
+    state.submitWindowInterval = null;
+  }
+  
+  renderSubmitWindowControl();
+}
+
+async function extendSubmitWindow(extraSeconds) {
+  if (!state.isAdmin || !state.quizId) return;
+  
+  // Fetch current closes_at
+  const { data: quiz } = await supabase
+    .from('quizzes')
+    .select('submit_closes_at')
+    .eq('id', state.quizId)
+    .single();
+  
+  if (!quiz || !quiz.submit_closes_at) return;
+  
+  const currentClose = new Date(quiz.submit_closes_at);
+  const now = new Date();
+  // If already expired, extend from now; otherwise extend from current close
+  const base = currentClose > now ? currentClose : now;
+  const newClose = new Date(base.getTime() + extraSeconds * 1000).toISOString();
+  
+  await supabase
+    .from('quizzes')
+    .update({ submit_closes_at: newClose, submit_open: true })
+    .eq('id', state.quizId);
+  
+  renderSubmitWindowControl();
+}
+
+async function renderSubmitWindowControl() {
+  const panel = elements.submitControlPanel;
+  const container = elements.submitWindowStatus;
+  if (!panel || !container) return;
+  
+  if (!state.isAdmin) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = 'block';
+  
+  // Fetch current state from DB
+  const { data: quiz } = await supabase
+    .from('quizzes')
+    .select('submit_open, submit_round_id, submit_closes_at')
+    .eq('id', state.quizId)
+    .single();
+  
+  if (!quiz) {
+    container.innerHTML = '<p style="color:#aaa;">Kvíz nenačítaný.</p>';
+    return;
+  }
+  
+  state.submitWindowData = quiz;
+  
+  // Clear old interval
+  if (state.submitWindowInterval) {
+    clearInterval(state.submitWindowInterval);
+    state.submitWindowInterval = null;
+  }
+  
+  if (!quiz.submit_open) {
+    // Window is closed
+    container.innerHTML = `
+      <div>
+        <p style="color:#aaa; margin-bottom:8px;">🔒 Submit okno je <strong style="color:#ff5252;">zatvorené</strong></p>
+        <button id="openSubmitWindowBtn" class="neon-button" style="background:linear-gradient(135deg,#00c853,#00bfa5);">
+          🔓 Otvoriť Submit
+        </button>
+      </div>
+    `;
+    container.querySelector('#openSubmitWindowBtn').onclick = openSubmitWindow;
+    return;
+  }
+  
+  // Window is open — show countdown + tracker
+  const closesAt = new Date(quiz.submit_closes_at);
+  
+  // Get round name
+  let roundName = '?';
+  if (quiz.submit_round_id) {
+    const { data: round } = await supabase
+      .from('rounds')
+      .select('name')
+      .eq('id', quiz.submit_round_id)
+      .single();
+    if (round) roundName = round.name;
+  }
+  
+  // Get teams for this quiz
+  const { data: allTeams } = await supabase
+    .from('teams')
+    .select('id, name')
+    .eq('quiz_id', state.quizId)
+    .order('name');
+  
+  const updateDisplay = async () => {
+    const now = new Date();
+    const remainingMs = closesAt - now;
+    const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
+    const minutes = Math.floor(remainingSec / 60);
+    const seconds = remainingSec % 60;
+    const timeStr = minutes + ':' + String(seconds).padStart(2, '0');
+    const isUrgent = remainingSec <= 30 && remainingSec > 0;
+    const isExpired = remainingSec <= 0;
+    
+    // Fetch submissions for this round to track teams
+    const { data: submissions } = await supabase
+      .from('answer_submissions')
+      .select('team_id')
+      .eq('quiz_id', state.quizId)
+      .eq('round_id', quiz.submit_round_id);
+    
+    const submittedTeamIds = new Set((submissions || []).map(s => s.team_id));
+    const totalTeams = (allTeams || []).length;
+    const submittedCount = (allTeams || []).filter(t => submittedTeamIds.has(t.id)).length;
+    
+    // Team tracker HTML
+    let teamTrackerHtml = '<div class="submit-team-tracker">';
+    teamTrackerHtml += `<p style="color:#0ff;font-size:0.85em;margin-bottom:6px;"><strong>Prijaté: ${submittedCount}/${totalTeams}</strong></p>`;
+    (allTeams || []).forEach(t => {
+      if (submittedTeamIds.has(t.id)) {
+        teamTrackerHtml += `<span class="team-submitted">✅ ${escapeHtml(t.name)}</span>`;
+      } else {
+        teamTrackerHtml += `<span class="team-missing">❌ ${escapeHtml(t.name)}</span>`;
+      }
+    });
+    teamTrackerHtml += '</div>';
+    
+    if (isExpired) {
+      // Auto-close: update DB
+      await supabase.from('quizzes').update({ submit_open: false }).eq('id', state.quizId);
+      if (state.submitWindowInterval) {
+        clearInterval(state.submitWindowInterval);
+        state.submitWindowInterval = null;
+      }
+      container.innerHTML = `
+        <div>
+          <p style="color:#ff5252; font-size:1.1em; margin-bottom:8px;">⏰ Čas vypršal! Kolo: <strong>${escapeHtml(roundName)}</strong></p>
+          <p style="color:#aaa; margin-bottom:8px;">Prijaté: ${submittedCount}/${totalTeams} tímov</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="reopenSubmitBtn" class="neon-button" style="background:linear-gradient(135deg,#00c853,#00bfa5);">🔓 Otvoriť nové okno</button>
+            <button id="extend60sBtn" class="neon-button" style="background:#7c3aed;">+60s predĺžiť</button>
+          </div>
+          ${teamTrackerHtml}
+        </div>
+      `;
+      container.querySelector('#reopenSubmitBtn').onclick = openSubmitWindow;
+      container.querySelector('#extend60sBtn').onclick = () => extendSubmitWindow(60);
+      // Refresh submissions list
+      loadAndRenderSubmissions();
+      return;
+    }
+    
+    container.innerHTML = `
+      <div style="width:100%;">
+        <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:8px;">
+          <span class="submit-window-countdown ${isUrgent ? 'urgent' : ''}">${timeStr}</span>
+          <span style="color:#0ff;">Kolo: <strong>${escapeHtml(roundName)}</strong></span>
+          <span style="color:#aaa;">Prijaté: <strong style="color:#00e676;">${submittedCount}</strong>/${totalTeams}</span>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+          <button id="extend60sBtn" class="neon-button" style="font-size:0.85em;padding:6px 12px;background:#7c3aed;">+60s</button>
+          <button id="extend120sBtn" class="neon-button" style="font-size:0.85em;padding:6px 12px;background:#7c3aed;">+120s</button>
+          <button id="closeSubmitBtn" class="neon-button" style="font-size:0.85em;padding:6px 12px;background:#c62828;">🔒 Zatvoriť</button>
+        </div>
+        ${teamTrackerHtml}
+      </div>
+    `;
+    
+    container.querySelector('#extend60sBtn').onclick = () => extendSubmitWindow(60);
+    container.querySelector('#extend120sBtn').onclick = () => extendSubmitWindow(120);
+    container.querySelector('#closeSubmitBtn').onclick = closeSubmitWindow;
+  };
+  
+  // Initial render
+  await updateDisplay();
+  // Update every 3 seconds (poll DB for new submissions + countdown)
+  state.submitWindowInterval = setInterval(updateDisplay, 3000);
+}
+
 function switchTab(tab) {
   state.currentTab = tab;
   elements.tabButtons.forEach(button => {
@@ -1871,6 +2156,7 @@ function switchTab(tab) {
   }
   if (tab === 'submissions') {
     loadAndRenderSubmissions();
+    if (state.quizId) renderSubmitWindowControl();
   }
   if (tab === 'answers') {
     loadAndRenderCorrectAnswers();

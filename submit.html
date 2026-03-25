@@ -202,24 +202,30 @@
     <div class="submit-container">
         <div class="submit-header">
             <h1>📝 Kvíz Factory</h1>
-            <p>Odovzdanie odpoveďového hárku</p>
+            <p id="quizTitle">Odovzdanie odpoveďového hárku</p>
         </div>
 
         <div class="submit-card">
-            <div id="loadingSpinner" class="loading-spinner active">Načítavam kvíz...</div>
+            <div id="loadingSpinner" class="loading-spinner active">Načítavam...</div>
 
+            <!-- Closed state -->
+            <div id="closedState" style="display:none; text-align:center; padding:24px;">
+                <div style="font-size:3em; margin-bottom:12px;">🔒</div>
+                <p style="color:#ff5252; font-size:1.2em; font-weight:700;">Submit momentálne nie je dostupný</p>
+                <p style="color:#aaa; font-size:0.9em; margin-top:8px;">Počkajte kým moderátor otvorí submit okno.</p>
+            </div>
+
+            <!-- Open state — submit form -->
             <div id="submitForm" style="display:none;">
+                <div id="roundInfo" style="text-align:center; margin-bottom:16px;">
+                    <span id="roundNameDisplay" style="color:#0ff; font-weight:700; font-size:1.1em;"></span>
+                    <div id="countdownDisplay" class="submit-countdown" style="font-size:2.2em; font-weight:800; color:#0ff; text-shadow:0 0 10px #0ff; margin:8px 0;"></div>
+                </div>
+
                 <div class="submit-field">
                     <label for="teamSelect">Tím</label>
                     <select id="teamSelect">
                         <option value="">— Vyber tím —</option>
-                    </select>
-                </div>
-
-                <div class="submit-field">
-                    <label for="roundSelect">Kolo</label>
-                    <select id="roundSelect">
-                        <option value="">— Vyber kolo —</option>
                     </select>
                 </div>
 
@@ -243,18 +249,21 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js"></script>
     <script>
     (async function() {
-        // === Init Supabase ===
         const SUPABASE_URL = window.SUPABASE_URL;
         const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY;
         if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-            showStatus('Chýba konfigurácia Supabase.', 'error');
+            document.getElementById('loadingSpinner').textContent = 'Chýba konfigurácia.';
             return;
         }
         const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        // === DOM refs ===
+        // DOM refs
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const closedState = document.getElementById('closedState');
+        const submitForm = document.getElementById('submitForm');
+        const roundNameDisplay = document.getElementById('roundNameDisplay');
+        const countdownDisplay = document.getElementById('countdownDisplay');
         const teamSelect = document.getElementById('teamSelect');
-        const roundSelect = document.getElementById('roundSelect');
         const fileInput = document.getElementById('fileInput');
         const captureBtn = document.getElementById('captureBtn');
         const previewArea = document.getElementById('previewArea');
@@ -263,123 +272,159 @@
         const changePhotoBtn = document.getElementById('changePhotoBtn');
         const submitBtn = document.getElementById('submitBtn');
         const statusMsg = document.getElementById('statusMsg');
-        const submitForm = document.getElementById('submitForm');
-        const loadingSpinner = document.getElementById('loadingSpinner');
+        const quizTitle = document.getElementById('quizTitle');
 
         let selectedFile = null;
         let quizId = null;
+        let activeRoundId = null;
+        let closesAt = null;
+        let countdownInterval = null;
+        let pollInterval = null;
         let _submitting = false;
 
-        // === URL params ===
+        // URL params
         const params = new URLSearchParams(window.location.search);
         const paramQuizId = params.get('quiz_id');
-        const paramRoundId = params.get('round_id');
 
-        // === Helpers ===
+        // Helpers
         function showStatus(msg, type) {
             statusMsg.textContent = msg;
             statusMsg.className = 'status-msg ' + type;
         }
-
         function clearStatus() {
             statusMsg.className = 'status-msg';
             statusMsg.textContent = '';
         }
-
-        function updateCaptureBtn() {
-            captureBtn.disabled = !teamSelect.value || !roundSelect.value;
-        }
-
-        // === Load quiz ===
-        try {
-            let quiz = null;
-            if (paramQuizId) {
-                const { data } = await sb
-                    .from('quizzes')
-                    .select('id, title')
-                    .eq('id', paramQuizId)
-                    .single();
-                quiz = data;
-            }
-            if (!quiz) {
-                const { data } = await sb
-                    .from('quizzes')
-                    .select('id, title')
-                    .order('created_at', { ascending: false })
-                    .limit(1)
-                    .single();
-                quiz = data;
-            }
-            if (!quiz) {
-                loadingSpinner.textContent = '';
-                showStatus('Žiadny kvíz nie je k dispozícii.', 'error');
-                return;
-            }
-            quizId = quiz.id;
-            document.querySelector('.submit-header p').textContent =
-                quiz.title ? quiz.title.replace(/\s*\(.*\)$/, '') : 'Odovzdanie odpoveďového hárku';
-
-            // Load teams
-            const { data: teams } = await sb
-                .from('teams')
-                .select('id, name')
-                .eq('quiz_id', quizId)
-                .order('name');
-            (teams || []).forEach(t => {
-                const opt = document.createElement('option');
-                opt.value = t.id;
-                opt.textContent = t.name;
-                teamSelect.appendChild(opt);
-            });
-
-            // Load rounds
-            const { data: rounds } = await sb
-                .from('rounds')
-                .select('id, name, round_order')
-                .eq('quiz_id', quizId)
-                .order('round_order');
-            (rounds || []).forEach(r => {
-                const opt = document.createElement('option');
-                opt.value = r.id;
-                opt.textContent = r.name;
-                if (paramRoundId && r.id === paramRoundId) opt.selected = true;
-                roundSelect.appendChild(opt);
-            });
-
+        function showClosed() {
             loadingSpinner.classList.remove('active');
-            submitForm.style.display = '';
-            updateCaptureBtn();
-        } catch (err) {
-            loadingSpinner.textContent = '';
-            showStatus('Chyba pri načítaní kvízu: ' + err.message, 'error');
-            return;
+            closedState.style.display = 'block';
+            submitForm.style.display = 'none';
+            if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
         }
+        function showForm() {
+            loadingSpinner.classList.remove('active');
+            closedState.style.display = 'none';
+            submitForm.style.display = 'block';
+        }
+
+        // === POLL for submit window state ===
+        async function checkSubmitWindow() {
+            try {
+                // Find quiz
+                let quiz = null;
+                if (paramQuizId) {
+                    const { data } = await sb.from('quizzes')
+                        .select('id, title, submit_open, submit_round_id, submit_closes_at')
+                        .eq('id', paramQuizId).single();
+                    quiz = data;
+                }
+                if (!quiz) {
+                    const { data } = await sb.from('quizzes')
+                        .select('id, title, submit_open, submit_round_id, submit_closes_at')
+                        .order('created_at', { ascending: false })
+                        .limit(1).single();
+                    quiz = data;
+                }
+                if (!quiz) {
+                    loadingSpinner.textContent = '';
+                    showStatus('Žiadny kvíz nie je k dispozícii.', 'error');
+                    return;
+                }
+
+                quizId = quiz.id;
+                quizTitle.textContent = quiz.title ? quiz.title.replace(/\s*\(.*\)$/, '') : 'Odovzdanie odpoveďového hárku';
+
+                // Check if submit window is open
+                if (!quiz.submit_open || !quiz.submit_round_id || !quiz.submit_closes_at) {
+                    showClosed();
+                    return;
+                }
+
+                // Check if time has expired
+                closesAt = new Date(quiz.submit_closes_at);
+                if (closesAt <= new Date()) {
+                    showClosed();
+                    return;
+                }
+
+                // Submit window is OPEN!
+                activeRoundId = quiz.submit_round_id;
+
+                // Load round name
+                const { data: round } = await sb.from('rounds')
+                    .select('name').eq('id', activeRoundId).single();
+                roundNameDisplay.textContent = round ? round.name : 'Kolo';
+
+                // Load teams (only if not already loaded for this quiz)
+                if (teamSelect.options.length <= 1) {
+                    const { data: teams } = await sb.from('teams')
+                        .select('id, name').eq('quiz_id', quizId).order('name');
+                    // Clear existing options except first
+                    while (teamSelect.options.length > 1) teamSelect.remove(1);
+                    (teams || []).forEach(t => {
+                        const opt = document.createElement('option');
+                        opt.value = t.id;
+                        opt.textContent = t.name;
+                        teamSelect.appendChild(opt);
+                    });
+                }
+
+                showForm();
+                startCountdown();
+            } catch (err) {
+                console.error('checkSubmitWindow error:', err);
+            }
+        }
+
+        function startCountdown() {
+            if (countdownInterval) clearInterval(countdownInterval);
+            function tick() {
+                const now = new Date();
+                const remainMs = closesAt - now;
+                const remainSec = Math.max(0, Math.ceil(remainMs / 1000));
+                if (remainSec <= 0) {
+                    countdownDisplay.textContent = '0:00';
+                    countdownDisplay.style.color = '#ff5252';
+                    showClosed();
+                    clearStatus();
+                    showStatus('⏰ Čas na odovzdanie vypršal!', 'error');
+                    return;
+                }
+                const min = Math.floor(remainSec / 60);
+                const sec = remainSec % 60;
+                countdownDisplay.textContent = min + ':' + String(sec).padStart(2, '0');
+                // Urgent styling under 30s
+                if (remainSec <= 30) {
+                    countdownDisplay.style.color = '#ff5252';
+                    countdownDisplay.style.textShadow = '0 0 10px #ff5252';
+                } else {
+                    countdownDisplay.style.color = '#0ff';
+                    countdownDisplay.style.textShadow = '0 0 10px #0ff';
+                }
+            }
+            tick();
+            countdownInterval = setInterval(tick, 1000);
+        }
+
+        // Initial check
+        await checkSubmitWindow();
+        // Poll every 5 seconds for window state changes (admin might open/close/extend)
+        pollInterval = setInterval(checkSubmitWindow, 5000);
 
         // === Event listeners ===
         teamSelect.addEventListener('change', () => {
             clearStatus();
-            updateCaptureBtn();
-        });
-        roundSelect.addEventListener('change', () => {
-            clearStatus();
-            updateCaptureBtn();
+            captureBtn.disabled = !teamSelect.value;
         });
 
-        captureBtn.addEventListener('click', () => {
-            fileInput.click();
-        });
-
-        changePhotoBtn.addEventListener('click', () => {
-            fileInput.click();
-        });
+        captureBtn.addEventListener('click', () => fileInput.click());
+        changePhotoBtn.addEventListener('click', () => fileInput.click());
 
         fileInput.addEventListener('change', () => {
             const file = fileInput.files[0];
             if (!file) return;
             selectedFile = file;
             clearStatus();
-
-            // Show preview
             const reader = new FileReader();
             reader.onload = (e) => {
                 previewImg.src = e.target.result;
@@ -390,39 +435,34 @@
             reader.readAsDataURL(file);
         });
 
-        // === Submit ===
+        // === SUBMIT ===
         submitBtn.addEventListener('click', async () => {
             if (_submitting) return;
             const teamId = teamSelect.value;
-            const roundId = roundSelect.value;
-            if (!teamId || !roundId) {
-                showStatus('Vyber tím aj kolo.', 'warning');
-                return;
-            }
-            if (!selectedFile) {
-                showStatus('Najprv odfotíš hárok.', 'warning');
+            if (!teamId) { showStatus('Vyber tím.', 'warning'); return; }
+            if (!selectedFile) { showStatus('Najprv odfotíš hárok.', 'warning'); return; }
+            if (!activeRoundId || !quizId) { showStatus('Submit okno nie je aktívne.', 'error'); return; }
+
+            // Double-check window is still open
+            const { data: freshQuiz } = await sb.from('quizzes')
+                .select('submit_open, submit_closes_at')
+                .eq('id', quizId).single();
+            if (!freshQuiz || !freshQuiz.submit_open || new Date(freshQuiz.submit_closes_at) <= new Date()) {
+                showStatus('⏰ Submit okno sa práve zatvorilo!', 'error');
+                showClosed();
                 return;
             }
 
-            // Check for duplicate submission
+            // Duplicate check
             try {
-                const { data: existing } = await sb
-                    .from('answer_submissions')
-                    .select('id')
-                    .eq('quiz_id', quizId)
-                    .eq('team_id', teamId)
-                    .eq('round_id', roundId)
-                    .limit(1);
+                const { data: existing } = await sb.from('answer_submissions')
+                    .select('id').eq('quiz_id', quizId)
+                    .eq('team_id', teamId).eq('round_id', activeRoundId).limit(1);
                 if (existing && existing.length > 0) {
                     const teamName = teamSelect.options[teamSelect.selectedIndex].text;
-                    const roundName = roundSelect.options[roundSelect.selectedIndex].text;
-                    if (!confirm('Tím "' + teamName + '" už odovzdal hárok pre kolo "' + roundName + '". Odoslať znova?')) {
-                        return;
-                    }
+                    if (!confirm('Tím "' + teamName + '" už odovzdal hárok. Odoslať znova?')) return;
                 }
-            } catch (e) {
-                // Continue even if check fails
-            }
+            } catch (e) { /* continue */ }
 
             _submitting = true;
             submitBtn.disabled = true;
@@ -430,34 +470,28 @@
             clearStatus();
 
             try {
-                // 1. Upload photo to Storage
-                const filePath = quizId + '/' + roundId + '/' + teamId + '_' + Date.now() + '.jpg';
+                const filePath = quizId + '/' + activeRoundId + '/' + teamId + '_' + Date.now() + '.jpg';
                 const { error: uploadErr } = await sb.storage
                     .from('answer-sheets')
                     .upload(filePath, selectedFile, { contentType: selectedFile.type });
                 if (uploadErr) throw new Error('Upload zlyhal: ' + uploadErr.message);
 
-                // 2. Get signed URL for preview (private bucket)
                 const { data: signedData } = await sb.storage
                     .from('answer-sheets')
-                    .createSignedUrl(filePath, 3600); // 1 hour validity
+                    .createSignedUrl(filePath, 3600);
                 const photoUrl = signedData?.signedUrl || '';
 
-                // 3. Insert record
-                const { error: insertErr } = await sb
-                    .from('answer_submissions')
-                    .insert({
-                        quiz_id: quizId,
-                        team_id: teamId,
-                        round_id: roundId,
-                        photo_url: photoUrl,
-                        photo_path: filePath,
-                        submitted_by: 'Tím upload'
-                    });
-                if (insertErr) throw new Error('Uloženie záznamu zlyhalo: ' + insertErr.message);
+                const { error: insertErr } = await sb.from('answer_submissions').insert({
+                    quiz_id: quizId,
+                    team_id: teamId,
+                    round_id: activeRoundId,
+                    photo_url: photoUrl,
+                    photo_path: filePath,
+                    submitted_by: 'Tím upload'
+                });
+                if (insertErr) throw new Error('Uloženie zlyhalo: ' + insertErr.message);
 
-                // Success
-                showStatus('Hárok odoslaný! ✅', 'success');
+                showStatus('✅ Hárok odoslaný!', 'success');
                 submitBtn.style.display = 'none';
                 previewArea.style.display = 'none';
                 selectedFile = null;

@@ -772,3 +772,50 @@ section h2 {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.4; }
 }
+
+/* === Submit Control Panel === */
+.submit-control-panel {
+    background: rgba(0, 255, 255, 0.05);
+    border: 1px solid rgba(0, 255, 255, 0.3);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+}
+.submit-window-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+}
+.submit-window-countdown {
+    font-size: 2em;
+    font-weight: 800;
+    color: #0ff;
+    text-shadow: 0 0 10px #0ff;
+    font-variant-numeric: tabular-nums;
+}
+.submit-window-countdown.urgent {
+    color: #ff5252;
+    text-shadow: 0 0 10px #ff5252;
+    animation: pulse 0.5s infinite;
+}
+.submit-team-tracker {
+    margin-top: 12px;
+    padding: 12px;
+    background: rgba(20, 10, 40, 0.8);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 0, 255, 0.2);
+}
+.submit-team-tracker .team-submitted {
+    color: #00e676;
+    margin: 2px 8px 2px 0;
+    display: inline-block;
+    font-size: 0.9em;
+}
+.submit-team-tracker .team-missing {
+    color: #ff5252;
+    margin: 2px 8px 2px 0;
+    display: inline-block;
+    font-size: 0.9em;
+    opacity: 0.7;
+}
