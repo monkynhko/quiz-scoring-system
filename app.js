@@ -165,7 +165,6 @@ const elements = {
   // Submissions tab
   submissionsList: document.getElementById('submissionsList'),
   submissionsRoundFilter: document.getElementById('submissionsRoundFilter'),
-  submissionsStatusFilter: document.getElementById('submissionsStatusFilter'),
   submissionModal: document.getElementById('submissionModal'),
   submissionModalImg: document.getElementById('submissionModalImg'),
   submissionModalInfo: document.getElementById('submissionModalInfo'),
@@ -267,7 +266,7 @@ async function saveQuizToSupabase() {
   const btn = elements.saveQuiz;
   if (btn) { btn.disabled = true; btn.textContent = 'Ukladám...'; }
   try {
-  // 1. Vytvor quiz
+  // 1. Vytvor/update quiz
   let quizId = state.quizId;
   if (!quizId) {
     const insertPayload = { title: state.title || 'Quiz' };
@@ -284,42 +283,135 @@ async function saveQuizToSupabase() {
     quizId = quiz.id;
     state.quizId = quizId;
   }
-  // 2. Teams
-  const teamsPayload = state.teams.map(name => ({ quiz_id: quizId, name }));
-  await supabase.from('teams').delete().eq('quiz_id', quizId); // prepis
-  const { data: teams, error: teamsErr } = await supabase
-    .from('teams')
-    .insert(teamsPayload)
-    .select('id, name');
-  if (teamsErr) {
-    alert('Chyba pri ukladaní tímov: ' + teamsErr.message);
-    return;
+
+  // 2. Teams — upsert by name within the quiz
+  const { data: existingTeams } = await supabase.from('teams').select('id, name').eq('quiz_id', quizId);
+  const existingTeamMap = {};
+  (existingTeams || []).forEach(t => { existingTeamMap[t.name] = t; });
+
+  const teamsToInsert = [];
+  const teamNamesInState = new Set(state.teams);
+  state.teams.forEach(name => {
+    if (!existingTeamMap[name]) {
+      teamsToInsert.push({ quiz_id: quizId, name });
+    }
+  });
+  // Delete teams no longer in state (but only if they have no submissions)
+  const teamsToDelete = (existingTeams || []).filter(t => !teamNamesInState.has(t.name));
+  for (const t of teamsToDelete) {
+    const { data: subs } = await supabase
+      .from('answer_submissions').select('id').eq('team_id', t.id).limit(1);
+    if (!subs || !subs.length) {
+      await supabase.from('scores').delete().eq('team_id', t.id);
+      await supabase.from('topic_scores').delete().eq('team_id', t.id);
+      await supabase.from('teams').delete().eq('id', t.id);
+    }
   }
-  // 3. Rounds
-  const roundsPayload = state.rounds.map((r, i) => ({
-    quiz_id: quizId,
-    name: r.name,
-    round_order: i
-  }));
-  // Delete old round_topics and topic_scores first (cascade from rounds)
-  await supabase.from('rounds').delete().eq('quiz_id', quizId);
-  const { data: rounds, error: roundsErr } = await supabase
-    .from('rounds')
-    .insert(roundsPayload)
-    .select('id, name, round_order');
-  if (roundsErr) {
-    alert('Chyba pri ukladaní kôl: ' + roundsErr.message);
-    return;
+  let insertedTeams = [];
+  if (teamsToInsert.length) {
+    const { data: tIns, error: tErr } = await supabase.from('teams').insert(teamsToInsert).select('id, name');
+    if (tErr) { alert('Chyba pri ukladaní tímov: ' + tErr.message); return; }
+    insertedTeams = tIns || [];
   }
-  // 4. Round Topics
-  // First, upsert any custom categories into the categories table
-  const roundTopicsPayload = [];
-  for (const round of rounds) {
-    const topics = state.roundTopics[round.name] || [];
+  // Build full teams list (existing kept + newly inserted)
+  const allTeams = [...(existingTeams || []).filter(t => teamNamesInState.has(t.name)), ...insertedTeams];
+  const teamByName = {};
+  allTeams.forEach(t => { teamByName[t.name] = t; });
+
+  // 3. Rounds — UPDATE existing, INSERT new, DELETE removed (only if no submissions)
+  const { data: existingRoundsDb } = await supabase.from('rounds').select('id, name, round_order').eq('quiz_id', quizId).order('round_order');
+  const existingRoundMap = {};
+  (existingRoundsDb || []).forEach(r => { existingRoundMap[r.id] = r; });
+
+  // Match state rounds to DB rounds by their stored .id
+  const roundsToUpdate = [];
+  const roundsToInsert = [];
+  const keptRoundIds = new Set();
+
+  for (let i = 0; i < state.rounds.length; i++) {
+    const sr = state.rounds[i];
+    if (sr.id && existingRoundMap[sr.id]) {
+      // Existing round — update name/order if changed
+      keptRoundIds.add(sr.id);
+      const dbRound = existingRoundMap[sr.id];
+      if (dbRound.name !== sr.name || dbRound.round_order !== i) {
+        roundsToUpdate.push({ id: sr.id, name: sr.name, round_order: i });
+      }
+    } else {
+      // New round
+      roundsToInsert.push({ quiz_id: quizId, name: sr.name, round_order: i, _stateIdx: i });
+    }
+  }
+
+  // Delete rounds not in state (only if no submissions reference them)
+  const roundsToDelete = (existingRoundsDb || []).filter(r => !keptRoundIds.has(r.id));
+  for (const r of roundsToDelete) {
+    const { data: subs } = await supabase
+      .from('answer_submissions').select('id').eq('round_id', r.id).limit(1);
+    if (!subs || !subs.length) {
+      await supabase.from('round_topics').delete().eq('round_id', r.id);
+      await supabase.from('scores').delete().eq('round_id', r.id);
+      await supabase.from('rounds').delete().eq('id', r.id);
+    } else {
+      console.warn('Skipping delete of round', r.id, r.name, '— has submissions');
+    }
+  }
+
+  // Apply round updates
+  for (const ru of roundsToUpdate) {
+    await supabase.from('rounds').update({ name: ru.name, round_order: ru.round_order }).eq('id', ru.id);
+  }
+
+  // Insert new rounds
+  let insertedRounds = [];
+  if (roundsToInsert.length) {
+    const payload = roundsToInsert.map(r => ({ quiz_id: r.quiz_id, name: r.name, round_order: r.round_order }));
+    const { data: rIns, error: rErr } = await supabase.from('rounds').insert(payload).select('id, name, round_order');
+    if (rErr) { alert('Chyba pri ukladaní kôl: ' + rErr.message); return; }
+    insertedRounds = rIns || [];
+  }
+
+  // Assign DB IDs back to state.rounds
+  let insertIdx = 0;
+  for (let i = 0; i < state.rounds.length; i++) {
+    const sr = state.rounds[i];
+    if (sr.id && existingRoundMap[sr.id]) {
+      // Already has ID, keep it
+    } else {
+      // Newly inserted — assign ID from result
+      if (insertedRounds[insertIdx]) {
+        sr.id = insertedRounds[insertIdx].id;
+      }
+      insertIdx++;
+    }
+  }
+
+  // Build round lookup
+  const allRoundsById = {};
+  state.rounds.forEach(sr => { if (sr.id) allRoundsById[sr.id] = sr; });
+
+  // 4. Round Topics — UPDATE existing, INSERT new, DELETE removed
+  const allRoundIds = state.rounds.filter(r => r.id).map(r => r.id);
+  let existingRtDb = [];
+  if (allRoundIds.length) {
+    const { data: rtDb } = await supabase.from('round_topics').select('id, round_id, category_id, topic_order, max_points').in('round_id', allRoundIds).order('topic_order');
+    existingRtDb = rtDb || [];
+  }
+  const existingRtMap = {};
+  existingRtDb.forEach(rt => { existingRtMap[rt.id] = rt; });
+
+  const rtToUpdate = [];
+  const rtToInsert = [];
+  const keptRtIds = new Set();
+  const savedRoundTopics = []; // will hold all final round_topics with IDs
+
+  for (const sr of state.rounds) {
+    if (!sr.id) continue;
+    const topics = state.roundTopics[sr.name] || [];
     for (let idx = 0; idx < topics.length; idx++) {
       const t = topics[idx];
       let catId = t.categoryId || null;
-      // If custom category (no categoryId but has customName), upsert into categories
+      // Upsert custom categories
       if (!catId && t.customName) {
         const { data: upserted, error: upsertErr } = await supabase
           .from('categories')
@@ -328,82 +420,104 @@ async function saveQuizToSupabase() {
           .single();
         if (!upsertErr && upserted) {
           catId = upserted.id;
-          t.categoryId = catId; // update in-memory too
+          t.categoryId = catId;
         }
       }
-      roundTopicsPayload.push({
-        round_id: round.id,
-        category_id: catId,
-        topic_order: idx + 1,
-        max_points: t.maxPoints || 5
-      });
-    }
-  }
-  
-  let savedRoundTopics = [];
-  if (roundTopicsPayload.length > 0) {
-    const { data: rtData, error: rtErr } = await supabase
-      .from('round_topics')
-      .insert(roundTopicsPayload)
-      .select('id, round_id, category_id, topic_order, max_points');
-    if (rtErr) {
-      alert('Chyba pri ukladaní tém kôl: ' + rtErr.message);
-      return;
-    }
-    savedRoundTopics = rtData || [];
-  }
-  
-  // 5. Topic Scores (if we have round_topics)
-  if (savedRoundTopics.length > 0) {
-    const topicScoresPayload = [];
-    teams.forEach(team => {
-      rounds.forEach(round => {
-        const topics = state.roundTopics[round.name] || [];
-        topics.forEach((t, idx) => {
-          const key = round.name + '::' + (idx + 1);
-          const val = (state.topicScores[team.name] && state.topicScores[team.name][key]) || 0;
-          // Find the matching saved round_topic
-          const rt = savedRoundTopics.find(rt => rt.round_id === round.id && rt.topic_order === (idx + 1));
-          if (rt) {
-            topicScoresPayload.push({
-              team_id: team.id,
-              round_topic_id: rt.id,
-              score: typeof val === 'number' && val >= 0 ? val : 0
-            });
-          }
-        });
-      });
-    });
-    if (topicScoresPayload.length > 0) {
-      const { error: tsErr } = await supabase.from('topic_scores').insert(topicScoresPayload);
-      if (tsErr) {
-        alert('Chyba pri ukladaní topic skóre: ' + tsErr.message);
-        return;
+
+      if (t.id && existingRtMap[t.id]) {
+        // Existing round_topic — update if changed
+        keptRtIds.add(t.id);
+        const dbRt = existingRtMap[t.id];
+        if (dbRt.category_id !== catId || dbRt.topic_order !== (idx + 1) || dbRt.max_points !== (t.maxPoints || 5)) {
+          rtToUpdate.push({ id: t.id, category_id: catId, topic_order: idx + 1, max_points: t.maxPoints || 5 });
+        }
+        savedRoundTopics.push({ id: t.id, round_id: sr.id, category_id: catId, topic_order: idx + 1, max_points: t.maxPoints || 5 });
+      } else {
+        // New round_topic
+        rtToInsert.push({ round_id: sr.id, category_id: catId, topic_order: idx + 1, max_points: t.maxPoints || 5, _roundName: sr.name, _topicIdx: idx });
       }
     }
   }
-  
-  // 6. Legacy Scores (backward compatibility)
-  await supabase.from('scores').delete().in('team_id', teams.map(t => t.id));
-  const scoresPayload = [];
-  teams.forEach(team => {
-    rounds.forEach(round => {
-      const val = state.scores[team.name]?.[round.name] ?? 0;
-      scoresPayload.push({
-        team_id: team.id,
-        round_id: round.id,
-        score: typeof val === 'number' && val >= 0 ? val : 0
-      });
+
+  // Delete removed round_topics (not in keptRtIds) — only from kept rounds
+  const rtToDelete = existingRtDb.filter(rt => !keptRtIds.has(rt.id) && allRoundIds.includes(rt.round_id));
+  for (const rt of rtToDelete) {
+    await supabase.from('topic_scores').delete().eq('round_topic_id', rt.id);
+    await supabase.from('correct_answers').delete().eq('round_topic_id', rt.id);
+    await supabase.from('round_topics').delete().eq('id', rt.id);
+  }
+
+  // Apply round_topic updates
+  for (const rtu of rtToUpdate) {
+    await supabase.from('round_topics').update({ category_id: rtu.category_id, topic_order: rtu.topic_order, max_points: rtu.max_points }).eq('id', rtu.id);
+  }
+
+  // Insert new round_topics
+  if (rtToInsert.length) {
+    const payload = rtToInsert.map(rt => ({ round_id: rt.round_id, category_id: rt.category_id, topic_order: rt.topic_order, max_points: rt.max_points }));
+    const { data: rtIns, error: rtErr } = await supabase.from('round_topics').insert(payload).select('id, round_id, category_id, topic_order, max_points');
+    if (rtErr) { alert('Chyba pri ukladaní tém kôl: ' + rtErr.message); return; }
+    // Assign IDs back to state topics
+    (rtIns || []).forEach((inserted, i) => {
+      const meta = rtToInsert[i];
+      const topics = state.roundTopics[meta._roundName] || [];
+      if (topics[meta._topicIdx]) {
+        topics[meta._topicIdx].id = inserted.id;
+      }
+      savedRoundTopics.push(inserted);
     });
-  });
-  if (scoresPayload.length > 0) {
-    const { error: scoresErr } = await supabase.from('scores').insert(scoresPayload);
-    if (scoresErr) {
-      alert('Chyba pri ukladaní skóre: ' + scoresErr.message);
-      return;
+  }
+
+  // 5. Topic Scores — UPSERT (preserve existing, update changed)
+  if (savedRoundTopics.length > 0) {
+    for (const team of allTeams) {
+      for (const rt of savedRoundTopics) {
+        const sr = allRoundsById[rt.round_id];
+        if (!sr) continue;
+        const key = sr.name + '::' + rt.topic_order;
+        const val = (state.topicScores[team.name] && state.topicScores[team.name][key]) || 0;
+        const score = typeof val === 'number' && val >= 0 ? val : 0;
+        // Use select + update/insert pattern for reliability
+        const { data: existing } = await supabase.from('topic_scores')
+          .select('id, score')
+          .eq('team_id', team.id)
+          .eq('round_topic_id', rt.id)
+          .maybeSingle();
+        if (existing) {
+          if (existing.score !== score) {
+            await supabase.from('topic_scores').update({ score }).eq('id', existing.id);
+          }
+        } else {
+          await supabase.from('topic_scores').insert({ team_id: team.id, round_topic_id: rt.id, score });
+        }
+      }
     }
   }
+
+  // 6. Legacy Scores — upsert per team+round
+  for (const team of allTeams) {
+    for (const sr of state.rounds) {
+      if (!sr.id) continue;
+      const val = state.scores[team.name]?.[sr.name] ?? 0;
+      const score = typeof val === 'number' && val >= 0 ? val : 0;
+      const { data: existing } = await supabase.from('scores')
+        .select('id, score')
+        .eq('team_id', team.id)
+        .eq('round_id', sr.id)
+        .maybeSingle();
+      if (existing) {
+        if (existing.score !== score) {
+          await supabase.from('scores').update({ score }).eq('id', existing.id);
+        }
+      } else {
+        await supabase.from('scores').insert({ team_id: team.id, round_id: sr.id, score });
+      }
+    }
+  }
+
   alert('Quiz uložený do Supabase!');
+  // Reload to sync all IDs
+  await loadQuizById(quizId);
   } finally {
     _saving = false;
     if (btn) { btn.disabled = false; btn.textContent = 'Save Quiz'; }
@@ -521,7 +635,7 @@ async function loadQuizById(quizId) {
       };
     });
     state.roundTopics[r.name] = topics;
-    return { name: r.name, topics };
+    return { id: r.id, name: r.name, topics };
   });
   
   // 5. Topic Scores (new system)
@@ -1220,7 +1334,7 @@ function updateQuizStats() {
 }
 
 // === SUBMISSIONS (photo review) ===
-async function fetchSubmissions(quizId, roundId, status) {
+async function fetchSubmissions(quizId, roundId, filterType) {
   if (mode !== 'supabase' || !quizId) return [];
   let q = supabase
     .from('answer_submissions')
@@ -1228,7 +1342,16 @@ async function fetchSubmissions(quizId, roundId, status) {
     .eq('quiz_id', quizId)
     .order('submitted_at', { ascending: false });
   if (roundId) q = q.eq('round_id', roundId);
-  if (status) q = q.eq('status', status);
+  // Filter by combined status/ai_status
+  if (filterType === 'ai_pending') {
+    q = q.or('ai_status.is.null,ai_status.eq.pending');
+  } else if (filterType === 'ai_completed') {
+    q = q.eq('ai_status', 'completed');
+  } else if (filterType === 'reviewed') {
+    q = q.eq('status', 'reviewed');
+  } else if (filterType === 'rejected') {
+    q = q.eq('status', 'rejected');
+  }
   const { data, error } = await q;
   if (error) { console.error('fetchSubmissions error', error); return []; }
   return data || [];
@@ -1254,8 +1377,10 @@ async function loadAndRenderSubmissions() {
     });
   }
   const roundId = elements.submissionsRoundFilter ? elements.submissionsRoundFilter.value : '';
-  const statusVal = elements.submissionsStatusFilter ? elements.submissionsStatusFilter.value : '';
-  const submissions = await fetchSubmissions(state.quizId, roundId, statusVal);
+  // Get active filter from button tabs
+  const activeFilterBtn = document.querySelector('.sub-filter-btn.active');
+  const filterType = activeFilterBtn ? (activeFilterBtn.dataset.filter || '') : '';
+  const submissions = await fetchSubmissions(state.quizId, roundId, filterType);
 
   // Need team & round names for display
   const teamIds = [...new Set(submissions.map(s => s.team_id))];
@@ -1776,9 +1901,14 @@ document.addEventListener('DOMContentLoaded', function() {
   if (elements.submissionsRoundFilter) {
     elements.submissionsRoundFilter.addEventListener('change', () => { loadAndRenderSubmissions(); });
   }
-  if (elements.submissionsStatusFilter) {
-    elements.submissionsStatusFilter.addEventListener('change', () => { loadAndRenderSubmissions(); });
-  }
+  // Submissions filter tab buttons
+  document.querySelectorAll('.sub-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.sub-filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      loadAndRenderSubmissions();
+    });
+  });
   if (elements.closeSubmissionModal) {
     elements.closeSubmissionModal.addEventListener('click', () => {
       elements.submissionModal.style.display = 'none';
@@ -1961,7 +2091,7 @@ function showCorrectAnswersModal(roundName) {
 
 // === APPLY AI SCORE TO TOPIC SCORES ===
 async function applyAiScoreToTopicScores(sub, evals) {
-  // Find round and its topics
+  // Fetch round info
   const { data: roundData } = await supabase
     .from('rounds')
     .select('id, name')
@@ -1976,7 +2106,7 @@ async function applyAiScoreToTopicScores(sub, evals) {
     .order('topic_order');
   if (!roundTopics || !roundTopics.length) throw new Error('Round topics nenájdené');
 
-  // Get team name
+  // Fetch team name
   const { data: teamData } = await supabase
     .from('teams')
     .select('id, name')
@@ -1984,24 +2114,35 @@ async function applyAiScoreToTopicScores(sub, evals) {
     .single();
   if (!teamData) throw new Error('Tím nenájdený');
 
-  // Group evaluations by question number and compute score per topic
-  // Assumption: questions map sequentially across topics
-  // e.g. topic1 has maxPoints=5 (questions 1-5), topic2 has maxPoints=5 (questions 6-10)
+  // Fetch fresh AI evaluations from DB (not stale param)
+  const { data: freshEvals, error: evErr } = await supabase
+    .from('ai_evaluations')
+    .select('question_number, is_correct, admin_override, confidence')
+    .eq('submission_id', sub.id)
+    .order('question_number');
+  if (evErr) throw new Error('Chyba načítania AI evaluations: ' + evErr.message);
+  const evalsList = freshEvals || evals || [];
+
+  // Map questions to topics sequentially:
+  // topic_order=1 (max_points=5) → questions 1-5; topic_order=2 (max_points=5) → questions 6-10
   let qOffset = 0;
   for (const rt of roundTopics) {
     const qCount = Math.ceil(rt.max_points || 5);
     let topicScore = 0;
     for (let q = 1; q <= qCount; q++) {
       const globalQ = qOffset + q;
-      const ev = evals.find(e => e.question_number === globalQ);
+      const ev = evalsList.find(e => e.question_number === globalQ);
       if (ev) {
-        const isCorrect = ev.admin_override != null ? ev.admin_override_correct : ev.is_correct;
+        // admin_override: true = flip from AI, null = use AI decision
+        const isCorrect = ev.admin_override !== null && ev.admin_override !== undefined
+          ? ev.admin_override  // boolean override
+          : ev.is_correct;
         if (isCorrect) topicScore++;
       }
     }
     qOffset += qCount;
 
-    // Upsert topic_score in DB
+    // Upsert topic_score — select+update/insert for reliability
     const { data: existing } = await supabase
       .from('topic_scores')
       .select('id')
@@ -2017,21 +2158,36 @@ async function applyAiScoreToTopicScores(sub, evals) {
 
     // Update local state
     const roundName = roundData.name;
-    const topicIdx = rt.topic_order;
-    const key = roundName + '::' + topicIdx;
+    const key = roundName + '::' + rt.topic_order;
     if (!state.topicScores[teamData.name]) state.topicScores[teamData.name] = {};
     state.topicScores[teamData.name][key] = topicScore;
-
-    // Update legacy flat score
-    if (!state.scores[teamData.name]) state.scores[teamData.name] = {};
-    // Recompute round total from all topic scores for this round
-    let roundTotal = 0;
-    roundTopics.forEach(rt2 => {
-      const k = roundName + '::' + rt2.topic_order;
-      roundTotal += (state.topicScores[teamData.name] && state.topicScores[teamData.name][k]) || 0;
-    });
-    state.scores[teamData.name][roundName] = roundTotal;
   }
+
+  // Recompute legacy flat score for the entire round
+  const roundName = roundData.name;
+  if (!state.scores[teamData.name]) state.scores[teamData.name] = {};
+  let roundTotal = 0;
+  roundTopics.forEach(rt2 => {
+    const k = roundName + '::' + rt2.topic_order;
+    roundTotal += (state.topicScores[teamData.name] && state.topicScores[teamData.name][k]) || 0;
+  });
+  state.scores[teamData.name][roundName] = roundTotal;
+
+  // Also upsert legacy scores table
+  const { data: existingScore } = await supabase.from('scores')
+    .select('id').eq('team_id', sub.team_id).eq('round_id', sub.round_id).maybeSingle();
+  if (existingScore) {
+    await supabase.from('scores').update({ score: roundTotal }).eq('id', existingScore.id);
+  } else {
+    await supabase.from('scores').insert({ team_id: sub.team_id, round_id: sub.round_id, score: roundTotal });
+  }
+
+  // Mark submission as reviewed
+  await supabase.from('answer_submissions')
+    .update({ status: 'reviewed', score_override: roundTotal, reviewed_at: new Date().toISOString(), reviewed_by: state.user?.id })
+    .eq('id', sub.id);
+  sub.status = 'reviewed';
+  sub.score_override = roundTotal;
 }
 
 // === BATCH AI EVALUATION ===

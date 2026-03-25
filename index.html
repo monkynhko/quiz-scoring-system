@@ -108,12 +108,13 @@
                         <select id="submissionsRoundFilter" class="neon-input">
                             <option value="">Všetky kolá</option>
                         </select>
-                        <select id="submissionsStatusFilter" class="neon-input">
-                            <option value="">Všetky statusy</option>
-                            <option value="pending">⏳ Pending</option>
-                            <option value="reviewed">✅ Reviewed</option>
-                            <option value="rejected">❌ Rejected</option>
-                        </select>
+                        <div class="submissions-filter-tabs" id="submissionsFilterTabs" style="display:flex; gap:4px; flex-wrap:wrap;">
+                            <button class="neon-button sub-filter-btn active" data-filter="" style="font-size:0.82em; padding:6px 12px;">Všetky</button>
+                            <button class="neon-button sub-filter-btn" data-filter="ai_pending" style="font-size:0.82em; padding:6px 12px;">⏳ Pending</button>
+                            <button class="neon-button sub-filter-btn" data-filter="ai_completed" style="font-size:0.82em; padding:6px 12px;">🤖 Spracované</button>
+                            <button class="neon-button sub-filter-btn" data-filter="reviewed" style="font-size:0.82em; padding:6px 12px;">✅ Potvrdené</button>
+                            <button class="neon-button sub-filter-btn" data-filter="rejected" style="font-size:0.82em; padding:6px 12px;">❌ Zamietnuté</button>
+                        </div>
                         <button id="batchAiEvaluate" class="neon-button" style="background:linear-gradient(135deg,#7c3aed,#2563eb); font-size:0.9em;">🤖 AI: Vyhodnotiť všetky</button>
                     </div>
                     <div id="submissionsList" class="submissions-grid"></div>
