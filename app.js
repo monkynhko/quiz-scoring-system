@@ -1698,6 +1698,54 @@ async function showSubmissionDetail(sub, teamMap, roundMap) {
     aiSection.appendChild(confirmBtn);
   }
 
+  // Re-evaluate button (when AI completed but results look wrong)
+  if (state.isAdmin && aiStatus === 'completed') {
+    const reEvalBtn = document.createElement('button');
+    reEvalBtn.className = 'neon-button';
+    reEvalBtn.textContent = '🔄 Znova vyhodnotiť AI';
+    reEvalBtn.style = 'background: linear-gradient(135deg, #e65100, #ff6d00); margin-top:8px; width:100%; font-size:0.95em;';
+    reEvalBtn.addEventListener('click', async () => {
+      if (!confirm('Vymazať aktuálne AI výsledky a spustiť AI znova?')) return;
+      reEvalBtn.disabled = true;
+      reEvalBtn.textContent = '⏳ Resetujem a spúšťam AI...';
+      
+      // 1. Delete old evaluations
+      await supabase.from('ai_evaluations').delete().eq('submission_id', sub.id);
+      
+      // 2. Reset AI status
+      await supabase.from('answer_submissions')
+        .update({ ai_status: null, ai_score: null, ai_max_score: null, ai_error: null })
+        .eq('id', sub.id);
+      
+      // 3. Re-run AI evaluation
+      try {
+        const { data, error } = await supabase.functions.invoke('evaluate-submission', {
+          body: { submission_id: sub.id }
+        });
+        if (error) throw error;
+        
+        // 4. Reload submission data and refresh modal
+        const { data: updated } = await supabase
+          .from('answer_submissions')
+          .select('ai_status, ai_score, ai_max_score, ai_error')
+          .eq('id', sub.id)
+          .single();
+        if (updated) {
+          sub.ai_status = updated.ai_status;
+          sub.ai_score = updated.ai_score;
+          sub.ai_max_score = updated.ai_max_score;
+          sub.ai_error = updated.ai_error;
+        }
+        showSubmissionDetail(sub, teamMap, roundMap);
+      } catch (e) {
+        alert('AI chyba: ' + (e.message || JSON.stringify(e)));
+        reEvalBtn.disabled = false;
+        reEvalBtn.textContent = '🔄 Znova vyhodnotiť AI';
+      }
+    });
+    aiSection.appendChild(reEvalBtn);
+  }
+
   elements.submissionModalInfo.appendChild(aiSection);
 
   const actionsEl = elements.submissionModalActions;
@@ -1735,8 +1783,41 @@ async function showSubmissionDetail(sub, teamMap, roundMap) {
       resetBtn.style.background = '#555';
       resetBtn.textContent = '⏳ Reset na pending';
       resetBtn.addEventListener('click', async () => {
-        await updateSubmissionStatus(sub.id, 'pending');
+        if (!confirm('Resetovať submission na pending? AI evaluations budú vymazané a môžeš spustiť AI znova.')) return;
+        resetBtn.disabled = true;
+        resetBtn.textContent = '⏳ Resetujem...';
+        
+        // Reset BOTH status AND ai_status
+        const { error } = await supabase
+          .from('answer_submissions')
+          .update({ 
+            status: 'pending', 
+            ai_status: null, 
+            ai_score: null, 
+            ai_max_score: null, 
+            ai_error: null,
+            reviewed_at: null,
+            reviewed_by: null 
+          })
+          .eq('id', sub.id);
+        
+        if (error) {
+          alert('Chyba: ' + error.message);
+          resetBtn.disabled = false;
+          resetBtn.textContent = '⏳ Reset na pending';
+          return;
+        }
+        
+        // Also delete old AI evaluations
+        await supabase.from('ai_evaluations').delete().eq('submission_id', sub.id);
+        
+        // Update local state
         sub.status = 'pending';
+        sub.ai_status = null;
+        sub.ai_score = null;
+        sub.ai_max_score = null;
+        sub.ai_error = null;
+        
         modal.style.display = 'none';
         await loadAndRenderSubmissions();
       });
