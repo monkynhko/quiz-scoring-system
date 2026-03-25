@@ -819,3 +819,65 @@ section h2 {
     font-size: 0.9em;
     opacity: 0.7;
 }
+
+/* === Detailed Stats Grid === */
+.detailed-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px;
+    margin-top: 16px;
+}
+.detail-stat-card {
+    background: rgba(20, 10, 40, 0.85);
+    border: 1px solid rgba(255, 0, 255, 0.2);
+    border-radius: 12px;
+    padding: 16px;
+    transition: border-color 0.3s;
+}
+.detail-stat-card:hover {
+    border-color: #0ff;
+}
+.detail-stat-card h4 {
+    color: #0ff;
+    margin: 0 0 8px 0;
+    font-size: 0.95em;
+}
+.detail-stat-card .stat-value {
+    color: #fff;
+    font-size: 1.3em;
+    font-weight: 700;
+}
+.detail-stat-card .stat-sub {
+    color: #aaa;
+    font-size: 0.82em;
+    margin-top: 4px;
+}
+.question-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 0.85em;
+}
+.question-bar .bar-fill {
+    height: 8px;
+    border-radius: 4px;
+    transition: width 0.4s ease;
+}
+.question-bar .bar-bg {
+    flex: 1;
+    height: 8px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+}
+.question-bar .bar-label {
+    min-width: 160px;
+    color: #ccc;
+}
+.question-bar .bar-pct {
+    min-width: 45px;
+    text-align: right;
+    color: #0ff;
+    font-weight: 600;
+}
