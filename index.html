@@ -10,11 +10,12 @@
     <div class="container">
         <header>
             <h1 class="neon-text">Kvíz Factory</h1>
-            <div class="date-time neon-text">24.09.2025 - 19:00 - 22:00</div>
+            <div id="currentQuizName" class="quiz-name-display neon-text"></div>
             <nav class="tab-navigation">
                 <button class="tab-button active" data-tab="scoring">Scoring</button>
                 <button class="tab-button" data-tab="leaderboard">Leaderboard</button>
                 <button class="tab-button" data-tab="submissions">📸 Submissions</button>
+                <button class="tab-button" data-tab="answers">📝 Odpovede</button>
             </nav>
         </header>
 
@@ -74,26 +75,13 @@
                             <h2>Current Rankings</h2>
                             <div id="leaderboardDisplay"></div>
                         </div>
-                        <div style="flex: 1 1 350px; min-width: 300px;">
+                        <div style="flex: 1 1 100%; min-width: 300px;">
                             <h2 style="color:#ffd700;">📊 Kvízové Štatistiky</h2>
-                            <div id="quizStats" class="stats-grid">
-                                <div class="stat-card">
-                                    <h3>Top Score</h3>
-                                    <div id="topScore"></div>
-                                </div>
-                                <div class="stat-card">
-                                    <h3>Najľahšie kolo</h3>
-                                    <div id="easiestRound"></div>
-                                </div>
-                                <div class="stat-card">
-                                    <h3>Najťažšie kolo</h3>
-                                    <div id="hardestRound"></div>
-                                </div>
-                                <div class="stat-card">
-                                    <h3>Najlepšie jednotlivé kolo</h3>
-                                    <div id="bestRound"></div>
-                                </div>
+                            <div id="quizStatsGrid" class="detailed-stats-grid">
+                                <p style="color:#aaa;">Načítavam štatistiky...</p>
                             </div>
+                            <div id="topicBarCharts" style="margin-top:24px;"></div>
+                            <div id="questionBarCharts" style="margin-top:24px;"></div>
                         </div>
                     </div>
                 </section>
@@ -103,18 +91,36 @@
             <div id="submissionsTab" class="tab-content">
                 <section class="neon-box">
                     <h2>📸 Odovzdané hárky</h2>
+                    <!-- Submit Window Control (admin) -->
+                    <div id="submitControlPanel" class="submit-control-panel" style="display:none;">
+                        <h3 style="color:#0ff; margin-bottom:12px;">🔓 Ovládanie Submit Okna</h3>
+                        <div id="submitWindowStatus" class="submit-window-status">
+                            <!-- Dynamicky renderované z app.js -->
+                        </div>
+                    </div>
                     <div class="submissions-controls">
                         <select id="submissionsRoundFilter" class="neon-input">
                             <option value="">Všetky kolá</option>
                         </select>
-                        <select id="submissionsStatusFilter" class="neon-input">
-                            <option value="">Všetky statusy</option>
-                            <option value="pending">⏳ Pending</option>
-                            <option value="reviewed">✅ Reviewed</option>
-                            <option value="rejected">❌ Rejected</option>
-                        </select>
+                        <div class="submissions-filter-tabs" id="submissionsFilterTabs" style="display:flex; gap:4px; flex-wrap:wrap;">
+                            <button class="neon-button sub-filter-btn active" data-filter="" style="font-size:0.82em; padding:6px 12px;">Všetky</button>
+                            <button class="neon-button sub-filter-btn" data-filter="ai_pending" style="font-size:0.82em; padding:6px 12px;">⏳ Pending</button>
+                            <button class="neon-button sub-filter-btn" data-filter="ai_completed" style="font-size:0.82em; padding:6px 12px;">🤖 Spracované</button>
+                            <button class="neon-button sub-filter-btn" data-filter="reviewed" style="font-size:0.82em; padding:6px 12px;">✅ Potvrdené</button>
+                            <button class="neon-button sub-filter-btn" data-filter="rejected" style="font-size:0.82em; padding:6px 12px;">❌ Zamietnuté</button>
+                        </div>
+                        <button id="batchAiEvaluate" class="neon-button" style="background:linear-gradient(135deg,#7c3aed,#2563eb); font-size:0.9em;">🤖 AI: Vyhodnotiť všetky</button>
                     </div>
                     <div id="submissionsList" class="submissions-grid"></div>
+                </section>
+            </div>
+
+            <!-- Answers Tab -->
+            <div id="answersTab" class="tab-content">
+                <section class="neon-box">
+                    <h2>📝 Správne odpovede</h2>
+                    <p style="color:#aaa; font-size:0.9em; margin-bottom:12px;">Zadaj správne odpovede pre každú tému kola. Tieto sa použijú na AI vyhodnotenie.</p>
+                    <div id="correctAnswersList"></div>
                 </section>
             </div>
         </main>

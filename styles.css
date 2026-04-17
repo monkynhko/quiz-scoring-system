@@ -566,6 +566,19 @@ section h2 {
     outline: none;
     border-color: #0ff;
 }
+.sub-filter-btn {
+    opacity: 0.6;
+    border: 1px solid transparent;
+    transition: opacity 0.2s, border-color 0.2s;
+}
+.sub-filter-btn.active {
+    opacity: 1;
+    border-color: #0ff;
+    box-shadow: 0 0 8px rgba(0,255,255,0.3);
+}
+.sub-filter-btn:hover {
+    opacity: 0.9;
+}
 .submissions-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -705,4 +718,173 @@ section h2 {
         padding: 16px;
         border-radius: 12px;
     }
+}
+
+/* Tab navigation */
+.tab-navigation {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+
+.tab-button {
+    padding: 8px 20px;
+    border: 1px solid rgba(255, 0, 255, 0.3);
+    border-radius: 8px 8px 0 0;
+    background: rgba(10, 10, 46, 0.6);
+    color: #aaa;
+    cursor: pointer;
+    font-size: 0.95em;
+    transition: all 0.3s;
+}
+
+.tab-button:hover {
+    background: rgba(255, 0, 255, 0.15);
+    color: #fff;
+}
+
+.tab-button.active {
+    background: rgba(255, 0, 255, 0.25);
+    color: #fff;
+    border-bottom-color: transparent;
+    font-weight: bold;
+    text-shadow: 0 0 8px rgba(255, 0, 255, 0.4);
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* Quiz name display in header */
+.quiz-name-display {
+    font-size: 1.1em;
+    letter-spacing: 1px;
+    color: #0ff;
+    text-align: center;
+    margin: 4px 0;
+    text-shadow: 0 0 6px rgba(0, 255, 255, 0.5), 0 0 12px rgba(0, 255, 255, 0.3);
+}
+
+.quiz-name-display:empty {
+    display: none;
+}
+
+/* AI pulse animation */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* === Submit Control Panel === */
+.submit-control-panel {
+    background: rgba(0, 255, 255, 0.05);
+    border: 1px solid rgba(0, 255, 255, 0.3);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+}
+.submit-window-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+}
+.submit-window-countdown {
+    font-size: 2em;
+    font-weight: 800;
+    color: #0ff;
+    text-shadow: 0 0 10px #0ff;
+    font-variant-numeric: tabular-nums;
+}
+.submit-window-countdown.urgent {
+    color: #ff5252;
+    text-shadow: 0 0 10px #ff5252;
+    animation: pulse 0.5s infinite;
+}
+.submit-team-tracker {
+    margin-top: 12px;
+    padding: 12px;
+    background: rgba(20, 10, 40, 0.8);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 0, 255, 0.2);
+}
+.submit-team-tracker .team-submitted {
+    color: #00e676;
+    margin: 2px 8px 2px 0;
+    display: inline-block;
+    font-size: 0.9em;
+}
+.submit-team-tracker .team-missing {
+    color: #ff5252;
+    margin: 2px 8px 2px 0;
+    display: inline-block;
+    font-size: 0.9em;
+    opacity: 0.7;
+}
+
+/* === Detailed Stats Grid === */
+.detailed-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px;
+    margin-top: 16px;
+}
+.detail-stat-card {
+    background: rgba(20, 10, 40, 0.85);
+    border: 1px solid rgba(255, 0, 255, 0.2);
+    border-radius: 12px;
+    padding: 16px;
+    transition: border-color 0.3s;
+}
+.detail-stat-card:hover {
+    border-color: #0ff;
+}
+.detail-stat-card h4 {
+    color: #0ff;
+    margin: 0 0 8px 0;
+    font-size: 0.95em;
+}
+.detail-stat-card .stat-value {
+    color: #fff;
+    font-size: 1.3em;
+    font-weight: 700;
+}
+.detail-stat-card .stat-sub {
+    color: #aaa;
+    font-size: 0.82em;
+    margin-top: 4px;
+}
+.question-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 0.85em;
+}
+.question-bar .bar-fill {
+    height: 8px;
+    border-radius: 4px;
+    transition: width 0.4s ease;
+}
+.question-bar .bar-bg {
+    flex: 1;
+    height: 8px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+}
+.question-bar .bar-label {
+    min-width: 160px;
+    color: #ccc;
+}
+.question-bar .bar-pct {
+    min-width: 45px;
+    text-align: right;
+    color: #0ff;
+    font-weight: 600;
 }
