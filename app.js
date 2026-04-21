@@ -182,9 +182,13 @@ async function signInAdmin(email) {
   }
 
     try {
-      // prefer explicit redirect so magic link returns to the current origin
-      const redirectTo = window.location.origin + window.location.pathname;
-      const res = await supabase.auth.signInWithOtp({ email }, { redirectTo });
+      const res = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          // TOTO JE DÔLEŽITÉ: natvrdo mu povedz, kam sa má vrátiť
+          emailRedirectTo: 'https://monkynhko.github.io/quiz-scoring-system/'
+        }
+      });
       if (res.error) {
         alert('Chyba pri prihlasovaní: ' + res.error.message);
         return false;
