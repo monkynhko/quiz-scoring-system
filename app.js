@@ -182,11 +182,11 @@ async function signInAdmin(email) {
   }
 
     try {
+      const redirectTo = window.location.origin + window.location.pathname;
       const res = await supabase.auth.signInWithOtp({
-        email,
+        email: email,
         options: {
-          // TOTO JE DÔLEŽITÉ: natvrdo mu povedz, kam sa má vrátiť
-          emailRedirectTo: 'https://monkynhko.github.io/quiz-scoring-system/'
+          emailRedirectTo: redirectTo
         }
       });
       if (res.error) {
