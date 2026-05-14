@@ -1398,12 +1398,20 @@ async function updateQuizStats() {
         hasAiStats = true;
         const subIds = submissions.map(s => s.id);
         
-        // Fetch all evaluations
-        const { data: allEvals } = await supabase
-          .from('ai_evaluations')
-          .select('submission_id, question_number, ocr_text, correct_answer, is_correct, confidence, admin_override, admin_override_correct')
-          .in('submission_id', subIds)
-          .order('question_number');
+        // Fetch all evaluations in chunks to bypass the 1000 row limit
+        let allEvals = [];
+        const chunkSize = 50;
+        for (let i = 0; i < subIds.length; i += chunkSize) {
+          const chunk = subIds.slice(i, i + chunkSize);
+          const { data } = await supabase
+            .from('ai_evaluations')
+            .select('submission_id, question_number, ocr_text, correct_answer, is_correct, confidence, admin_override, admin_override_correct')
+            .in('submission_id', chunk)
+            .order('question_number');
+          if (data) {
+            allEvals.push(...data);
+          }
+        }
         
         if (allEvals && allEvals.length > 0) {
           // Build maps
@@ -1481,7 +1489,7 @@ async function updateQuizStats() {
               questionStats[key] = {
                 correct: 0, total: 0, label: getQuestionLabel(sub.round_id, ev.question_number),
                 roundName: roundInfo ? roundInfo.name : '?', correctAnswer: ev.correct_answer || '',
-                confSum: 0
+                confSum: 0, globalQ: ev.question_number
               };
             }
             questionStats[key].total++;
@@ -1611,11 +1619,7 @@ async function updateQuizStats() {
             });
             Object.entries(questionsByRound).forEach(([roundName, questions]) => {
               qHtml += `<p style="color:#0ff; font-weight:600; margin:12px 0 6px;">${escapeHtml(roundName)}</p>`;
-              questions.sort((a, b) => {
-                const aNum = parseInt(a.label.match(/#(\d+)/)?.[1] || '0');
-                const bNum = parseInt(b.label.match(/#(\d+)/)?.[1] || '0');
-                return aNum - bNum;
-              });
+              questions.sort((a, b) => a.globalQ - b.globalQ);
               questions.forEach(q => {
                 const barColor = q.pct > 70 ? '#00e676' : q.pct >= 40 ? '#ffd600' : '#ff5252';
                 qHtml += `<div class="question-bar">
