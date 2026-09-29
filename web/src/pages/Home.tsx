@@ -53,7 +53,7 @@ export default function Home() {
         )
       })}
 
-      <p className="center muted small"><a href="/vysledky/">Výsledky a ligová tabuľka</a></p>
+      <p className="center muted small"><a href="/live">Priebežné poradie</a> · <a href="/vysledky/">Výsledky a ligová tabuľka</a></p>
     </>
   )
 }

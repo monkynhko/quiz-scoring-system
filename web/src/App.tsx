@@ -12,10 +12,27 @@ import { Spinner } from './components'
 const Tickets = lazy(() => import('./pages/Tickets'))
 const Admin = lazy(() => import('./pages/Admin'))
 const Door = lazy(() => import('./pages/Door'))
+const Grading = lazy(() => import('./pages/Grading'))
+const Setup = lazy(() => import('./pages/Setup'))
+const Submit = lazy(() => import('./pages/Submit'))
+const Projector = lazy(() => import('./pages/Projector'))
 
 export default function App() {
   return (
     <BrowserRouter>
+      <Suspense fallback={<Spinner />}>
+      <Routes>
+        {/* projektor bez hlavičky a pätičky – na celé plátno */}
+        <Route path="/projektor" element={<Projector />} />
+        <Route path="*" element={<Site />} />
+      </Routes>
+      </Suspense>
+    </BrowserRouter>
+  )
+}
+
+function Site() {
+  return (
       <Layout>
         <Suspense fallback={<Spinner />}>
         <Routes>
@@ -27,10 +44,13 @@ export default function App() {
           <Route path="/vstupenky" element={<Shop />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/vstup" element={<Door />} />
+          <Route path="/opravovanie" element={<Grading />} />
+          <Route path="/priprava" element={<Setup />} />
+          <Route path="/odovzdat" element={<Submit />} />
+          <Route path="/live" element={<Projector big={false} />} />
           <Route path="*" element={<p className="card center">Stránka neexistuje.</p>} />
         </Routes>
         </Suspense>
       </Layout>
-    </BrowserRouter>
   )
 }

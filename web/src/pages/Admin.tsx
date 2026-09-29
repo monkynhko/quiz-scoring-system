@@ -40,7 +40,12 @@ function Dashboard({ email }: { email: string }) {
         <select value={eventId} onChange={(e) => setEventId(e.target.value)}>
           {events?.map((e) => <option key={e.id} value={e.id}>{e.title}{e.is_public ? '' : ' (neverejný)'}</option>)}
         </select>
-        <a className="button button-small" href="/vstup">📷 Vstup / skenovanie</a>
+        <span className="cta-row">
+          <a className="button button-small" href="/vstup">📷 Vstup</a>
+          <a className="button button-small" href="/priprava">📝 Príprava kvízu</a>
+          <a className="button button-small" href="/opravovanie">✅ Opravovanie</a>
+          <a className="button button-small button-ghost" href="/projektor" target="_blank">Projektor ↗</a>
+        </span>
         <span className="muted small">{email} · <button className="link" onClick={() => supabase.auth.signOut()}>Odhlásiť</button></span>
       </div>
       <NewEvent onCreated={async (id) => { await loadEvents(); setEventId(id) }} />
