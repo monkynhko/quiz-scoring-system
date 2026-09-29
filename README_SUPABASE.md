@@ -80,5 +80,3 @@ await supabase.from('quizzes').insert([{ title: 'Test Quiz' }]);
 ```sh
 curl "https://<project>.supabase.co/rest/v1/quizzes?select=*"
 ```
-Supabase db pw:
-Hunr260dtMIiV0ei
