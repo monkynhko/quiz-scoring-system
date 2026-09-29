@@ -42,9 +42,10 @@ function Dashboard({ email }: { email: string }) {
         <a className="button button-small" href="/vstup">📷 Vstup / skenovanie</a>
         <span className="muted small">{email} · <button className="link" onClick={() => supabase.auth.signOut()}>Odhlásiť</button></span>
       </div>
-      {!event ? <Spinner /> : (
+      <NewEvent onCreated={async (id) => { await loadEvents(); setEventId(id) }} />
+      {!events ? <Spinner /> : !event ? <p className="card center muted">Zatiaľ žiadny kvíz. Pridajte ho tlačidlom vyššie.</p> : (
         <>
-          <EventSettings key={event.id} event={event} onSaved={loadEvents} />
+          <EventSettings key={event.id} event={event} onSaved={loadEvents} onDeleted={async () => { setEventId(undefined); await loadEvents() }} />
           <Registrations event={event} />
           <Staff />
         </>
@@ -53,7 +54,11 @@ function Dashboard({ email }: { email: string }) {
   )
 }
 
-function EventSettings({ event, onSaved }: { event: EventRow; onSaved: () => void }) {
+function EventSettings({ event, onSaved, onDeleted }: { event: EventRow; onSaved: () => void; onDeleted: () => void }) {
+  const [title, setTitle] = useState(event.title)
+  const [startsAt, setStartsAt] = useState(toLocalInput(event.starts_at))
+  const [venue, setVenue] = useState(event.venue)
+  const [isPublic, setIsPublic] = useState(event.is_public)
   const [capacity, setCapacity] = useState(event.capacity_teams)
   const [price, setPrice] = useState(event.price_per_person_cents / 100)
   const [doorPrice, setDoorPrice] = useState(event.door_price_per_person_cents / 100)
@@ -73,10 +78,25 @@ function EventSettings({ event, onSaved }: { event: EventRow; onSaved: () => voi
     else onSaved()
   }
 
+  async function deleteEvent() {
+    const { count } = await supabase.from('registrations').select('id', { count: 'exact', head: true }).eq('event_id', event.id)
+    if (count) { alert(`Kvíz má ${count} registrácií, zmazať ho nejde. Zrušte registrácie alebo kvíz skryte z webu.`); return }
+    if (!confirm(`Naozaj zmazať kvíz „${event.title}“? Toto sa nedá vrátiť.`)) return
+    setBusy(true)
+    const { error } = await supabase.from('events').delete().eq('id', event.id)
+    setBusy(false)
+    if (error) alert('Zmazanie zlyhalo: ' + error.message)
+    else onDeleted()
+  }
+
   function saveSettings(e: React.FormEvent) {
     e.preventDefault()
     const options = to.split('\n').map((s) => s.trim()).filter(Boolean)
     update({
+      title: title.trim(),
+      starts_at: new Date(startsAt).toISOString(),
+      venue: venue.trim(),
+      is_public: isPublic,
       capacity_teams: capacity,
       price_per_person_cents: Math.round(price * 100),
       door_price_per_person_cents: Math.round(doorPrice * 100),
@@ -113,6 +133,10 @@ function EventSettings({ event, onSaved }: { event: EventRow; onSaved: () => voi
       <details>
         <summary>Nastavenia (kapacita, ceny, platba, ochutnávka)</summary>
         <form className="form" onSubmit={saveSettings}>
+          <label>Názov<input required value={title} onChange={(e) => setTitle(e.target.value)} /></label>
+          <label>Dátum a čas<input required type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} /></label>
+          <label>Miesto<input required value={venue} onChange={(e) => setVenue(e.target.value)} /></label>
+          <label className="checkbox-row"><input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} /> <span>Zobraziť na webe (inak iba cez priamy odkaz)</span></label>
           <label>Kapacita (tímov)<input type="number" min={1} value={capacity} onChange={(e) => setCapacity(Number(e.target.value))} /></label>
           <label>Cena za osobu online (€)<input type="number" min={0} step={0.5} value={price} onChange={(e) => setPrice(Number(e.target.value))} />
             <span className="hint">Platí pre nové registrácie a zmeny počtu. Už zaregistrované tímy si ponechajú svoju sumu.</span></label>
@@ -125,6 +149,10 @@ function EventSettings({ event, onSaved }: { event: EventRow; onSaved: () => voi
           <label>Správna možnosť (poradie od 1)<input type="number" min={1} value={tc + 1} onChange={(e) => setTc(Number(e.target.value) - 1)} /></label>
           <button className="button" disabled={busy}>Uložiť nastavenia</button>
         </form>
+        <p className="hint" style={{ marginTop: 18 }}>
+          <button type="button" className="button button-small button-danger" disabled={busy} onClick={deleteEvent}>Zmazať kvíz</button>{' '}
+          Zmazať sa dá iba kvíz bez registrácií. Kvíz s registráciami skryjete odškrtnutím „Zobraziť na webe“.
+        </p>
       </details>
     </article>
   )
@@ -340,6 +368,62 @@ function Staff() {
           <button className="button" disabled={busy}>{busy ? 'Pridávam…' : 'Pridať'}</button>
         </form>
       </details>
+    </article>
+  )
+}
+
+// datetime-local potrebuje "YYYY-MM-DDTHH:mm" v miestnom čase
+function toLocalInput(iso: string) {
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function NewEvent({ onCreated }: { onCreated: (id: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [title, setTitle] = useState('Kvíz Factory')
+  const [startsAt, setStartsAt] = useState('')
+  const [venue, setVenue] = useState('Káčečko')
+  const [capacity, setCapacity] = useState(35)
+  const [openReg, setOpenReg] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  async function create(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy(true)
+    const base = startsAt.slice(0, 10) // YYYY-MM-DD
+    let slug = base
+    for (let i = 2; ; i++) {
+      const { count } = await supabase.from('events').select('id', { count: 'exact', head: true }).eq('slug', slug)
+      if (!count) break
+      slug = `${base}-${i}`
+    }
+    const { data, error } = await supabase.from('events').insert({
+      slug, title: title.trim(), starts_at: new Date(startsAt).toISOString(), venue: venue.trim(),
+      capacity_teams: capacity, registration_open: openReg, is_public: true,
+      price_per_person_cents: 700, door_price_per_person_cents: 700,
+    }).select('id').single()
+    setBusy(false)
+    if (error) { alert('Vytvorenie zlyhalo: ' + error.message); return }
+    setOpen(false)
+    onCreated(data.id)
+  }
+
+  if (!open) return <p><button className="button button-small" onClick={() => setOpen(true)}>➕ Nový kvíz</button></p>
+  return (
+    <article className="card">
+      <h2>Nový kvíz</h2>
+      <form className="form" onSubmit={create}>
+        <label>Názov<input required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="napr. Kvíz Factory vol. 26" /></label>
+        <label>Dátum a čas<input required type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} /></label>
+        <label>Miesto<input required value={venue} onChange={(e) => setVenue(e.target.value)} /></label>
+        <label>Kapacita (tímov)<input type="number" min={1} value={capacity} onChange={(e) => setCapacity(Number(e.target.value))} /></label>
+        <label className="checkbox-row"><input type="checkbox" checked={openReg} onChange={(e) => setOpenReg(e.target.checked)} /> <span>Hneď otvoriť registráciu</span></label>
+        <div className="cta-row">
+          <button className="button" disabled={busy}>{busy ? 'Vytváram…' : 'Vytvoriť kvíz'}</button>
+          <button type="button" className="button button-ghost" onClick={() => setOpen(false)}>Zrušiť</button>
+        </div>
+      </form>
     </article>
   )
 }

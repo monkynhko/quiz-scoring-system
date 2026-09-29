@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { friendlyError, supabase, type PublicEvent } from '../lib/supabase'
-import { dateLong, eur, time } from '../lib/format'
+import { dateLong, time } from '../lib/format'
 import { Spinner } from '../components'
 
 export default function Register() {
@@ -79,7 +79,6 @@ export default function Register() {
                 </label>
               ))}
             </div>
-            <span className="hint">Vstupné {eur(event.price_per_person_cents)} za osobu.</span>
           </fieldset>
 
           {event.teaser_question && event.teaser_options && (

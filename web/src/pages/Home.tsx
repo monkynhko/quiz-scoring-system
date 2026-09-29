@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase, type PublicEvent } from '../lib/supabase'
-import { dateLong, eur, spotsText, time } from '../lib/format'
+import { dateLong, spotsText, time } from '../lib/format'
 import { Spinner } from '../components'
 
 export default function Home() {
@@ -34,7 +34,6 @@ export default function Home() {
             <p className="event-meta">
               <strong>{dateLong(e.starts_at)}</strong> o {time(e.starts_at)} · {e.venue}
             </p>
-            <p>Vstupné <strong>{eur(e.price_per_person_cents)}</strong> za osobu.</p>
             {e.registration_open ? (
               <>
                 <p className={free > 0 ? 'spots' : 'spots spots-full'}>
