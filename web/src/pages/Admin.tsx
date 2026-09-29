@@ -7,14 +7,15 @@ import { AdminGate } from '../AdminGate'
 type EventRow = {
   id: string; slug: string; title: string; starts_at: string; venue: string
   capacity_teams: number; price_per_person_cents: number; door_price_per_person_cents: number; change_deadline_hours: number
-  registration_open: boolean; is_public: boolean
+  registration_open: boolean; is_public: boolean; shop_open: boolean
   payment_iban: string | null; payment_beneficiary: string | null
   teaser: { question: string; options: string[]; correct: number } | null
 }
 type Reg = {
   id: string; team_name: string; email: string; team_size: number; status: string
   payment_status: string; payment_method: string | null; amount_cents: number; variable_symbol: string
-  paid_cents: number; manage_token: string; created_at: string; email_sent_at: string | null; admin_note: string | null
+  paid_cents: number; manage_token: string; created_at: string
+  attendance: 'yes' | 'no' | null; reminder_sent_at: string | null; email_sent_at: string | null; admin_note: string | null
 }
 
 export default function Admin() {
@@ -59,6 +60,7 @@ function EventSettings({ event, onSaved, onDeleted }: { event: EventRow; onSaved
   const [startsAt, setStartsAt] = useState(toLocalInput(event.starts_at))
   const [venue, setVenue] = useState(event.venue)
   const [isPublic, setIsPublic] = useState(event.is_public)
+  const [shopOpen, setShopOpen] = useState(event.shop_open)
   const [capacity, setCapacity] = useState(event.capacity_teams)
   const [price, setPrice] = useState(event.price_per_person_cents / 100)
   const [doorPrice, setDoorPrice] = useState(event.door_price_per_person_cents / 100)
@@ -97,6 +99,7 @@ function EventSettings({ event, onSaved, onDeleted }: { event: EventRow; onSaved
       starts_at: new Date(startsAt).toISOString(),
       venue: venue.trim(),
       is_public: isPublic,
+      shop_open: shopOpen,
       capacity_teams: capacity,
       price_per_person_cents: Math.round(price * 100),
       door_price_per_person_cents: Math.round(doorPrice * 100),
@@ -142,6 +145,8 @@ function EventSettings({ event, onSaved, onDeleted }: { event: EventRow; onSaved
             <span className="hint">Platí pre nové registrácie a zmeny počtu. Už zaregistrované tímy si ponechajú svoju sumu.</span></label>
           <label>Cena za osobu na mieste (€)<input type="number" min={0} step={0.5} value={doorPrice} onChange={(e) => setDoorPrice(Number(e.target.value))} /></label>
           <label>Zníženie počtu / odhlásenie najneskôr (hodín pred kvízom)<input type="number" min={0} value={deadline} onChange={(e) => setDeadline(Number(e.target.value))} /></label>
+          <label className="checkbox-row"><input type="checkbox" checked={shopOpen} onChange={(e) => setShopOpen(e.target.checked)} />
+            <span><strong>Predaj vstupeniek spustený</strong> – tímom sa zobrazí QR na platbu a IBAN (na webe aj v e-maile). Kým je vypnuté, IBAN nikto nevidí.</span></label>
           <label>IBAN na prevod<input value={iban} onChange={(e) => setIban(e.target.value)} placeholder="prázdne = iba platba na mieste" /></label>
           <label>Príjemca platby<input value={beneficiary} onChange={(e) => setBeneficiary(e.target.value)} /></label>
           <label>Ochutnávková otázka<input value={tq} onChange={(e) => setTq(e.target.value)} placeholder="nepovinné" /></label>
@@ -187,6 +192,8 @@ function Registrations({ event }: { event: EventRow }) {
       paid: c.reduce((s, r) => s + r.paid_cents, 0),
       unpaid: c.reduce((s, r) => s + Math.max(r.amount_cents - r.paid_cents, 0), 0),
       waitlist: (regs ?? []).filter((r) => r.status === 'waitlist').length,
+      attYes: c.filter((r) => r.attendance === 'yes').length,
+      attNone: c.filter((r) => !r.attendance).length,
     }
   }, [regs])
 
@@ -223,6 +230,24 @@ function Registrations({ event }: { event: EventRow }) {
       act(r, () => supabase.functions.invoke('send-registration-email', { body: { token: r.manage_token, kind, resend: true } }))
   }
 
+  const [sendingReminders, setSendingReminders] = useState(false)
+  // výzva ide potvrdeným tímom, ktoré ešte neodpovedali a výzvu ešte nedostali
+  const remindTargets = (regs ?? []).filter((r) => r.status === 'confirmed' && !r.attendance && !r.reminder_sent_at && !r.email.startsWith('na-mieste@'))
+  async function sendReminders() {
+    if (!remindTargets.length) { alert('Všetky potvrdené tímy už výzvu dostali alebo odpovedali.'); return }
+    const preview = `Predmet: Potvrďte účasť – <tím> | ${event.title}\n\n„Prídete na kvíz? Kvíz sa blíži! Dajte nám prosím vedieť, či prídete – kapacita je obmedzená a ak nemôžete, uvoľníme miesto ďalšiemu tímu.“\nTlačidlá: ✅ Prídeme · Zmeniť počet · ❌ Neprídeme`
+    if (!confirm(`Poslať výzvu „Potvrďte účasť“ ${remindTargets.length} tímom?\n\n${preview}`)) return
+    setSendingReminders(true)
+    let failed = 0
+    for (const r of remindTargets) {
+      const { error } = await supabase.functions.invoke('send-registration-email', { body: { token: r.manage_token, kind: 'reminder', resend: true } })
+      if (error) failed++
+    }
+    setSendingReminders(false)
+    alert(failed ? `Odoslané ${remindTargets.length - failed}, zlyhalo ${failed}. Skúste znova.` : `Odoslané ${remindTargets.length} tímom.`)
+    load()
+  }
+
   function exportCsv() {
     const rows = [['poradie', 'tim', 'email', 'pocet', 'stav', 'platba', 'sposob', 'suma_eur', 'vs', 'registrovany'],
       ...(regs ?? []).map((r, i) => [i + 1, r.team_name, r.email, r.team_size, r.status, r.payment_status, r.payment_method ?? '', (r.amount_cents / 100).toFixed(2), r.variable_symbol, r.created_at])]
@@ -242,10 +267,17 @@ function Registrations({ event }: { event: EventRow }) {
         <div><strong>{eur(stats.paid)}</strong><span>zaplatené</span></div>
         <div><strong>{eur(stats.unpaid)}</strong><span>nezaplatené</span></div>
         <div><strong>{stats.waitlist}</strong><span>čakacia listina</span></div>
+        <div><strong>{stats.attYes}</strong><span>potvrdili účasť</span></div>
+        <div><strong>{stats.attNone}</strong><span>bez odpovede</span></div>
       </div>
       <div className="admin-bar">
         <input placeholder="Hľadať tím, e-mail, VS…" value={filter} onChange={(e) => setFilter(e.target.value)} />
-        <button className="button button-small button-ghost" onClick={exportCsv}>Export CSV</button>
+        <span className="cta-row">
+          <button className="button button-small" disabled={sendingReminders} onClick={sendReminders}>
+            {sendingReminders ? 'Posielam…' : `📨 Potvrďte účasť (${remindTargets.length})`}
+          </button>
+          <button className="button button-small button-ghost" onClick={exportCsv}>Export CSV</button>
+        </span>
       </div>
       <div className="table-wrap">
         <table className="regs">
@@ -260,7 +292,8 @@ function Registrations({ event }: { event: EventRow }) {
                     {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}
                   </select>
                 </td>
-                <td>{STATUS_LABEL[r.status]}</td>
+                <td>{STATUS_LABEL[r.status]}
+                  {r.status === 'confirmed' && <><br /><span className="small">{r.attendance === 'yes' ? '✅ prídu' : r.reminder_sent_at ? '⏳ bez odpovede' : ''}</span></>}</td>
                 <td>{r.payment_status === 'paid'
                   ? <>✅ {r.payment_method === 'cash' ? 'hotovosť' : r.payment_method === 'transfer' ? 'prevod' : r.payment_method ?? ''}
                       {r.paid_cents > r.amount_cents && <><br /><span className="warn">vrátiť {eur(r.paid_cents - r.amount_cents)}</span></>}</>

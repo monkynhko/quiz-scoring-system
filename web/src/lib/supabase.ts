@@ -38,7 +38,9 @@ export type RegistrationView = {
   variable_symbol: string
   created_at: string
   teaser_answer: number | null
+  attendance: 'yes' | 'no' | null
   event: {
+    shop_open: boolean
     title: string
     starts_at: string
     venue: string

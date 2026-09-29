@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { friendlyError, supabase, type PublicEvent } from '../lib/supabase'
 import { dateLong, time } from '../lib/format'
 import { Spinner } from '../components'
@@ -105,6 +105,7 @@ export default function Register() {
           <button className="button" disabled={sending}>{sending ? 'Odosielam…' : 'Registrovať tím'}</button>
         </form>
       )}
+      <p className="center" style={{ marginTop: 16 }}><Link className="button button-ghost button-small" to="/">← Späť na úvod</Link></p>
     </article>
   )
 }

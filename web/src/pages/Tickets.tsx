@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { friendlyError, supabase, type RegistrationView } from '../lib/supabase'
 import { dateLong, dateTimeShort, eur, formatIban, time } from '../lib/format'
 import { payBySquare } from '../lib/payBySquare'
@@ -58,7 +58,15 @@ export default function Tickets() {
         )}
         {reg.status === 'cancelled' && <p className="alert">Táto registrácia bola zrušená.</p>}
 
-        {reg.status === 'confirmed' && (
+        {reg.status === 'confirmed' && reg.payment_status !== 'paid' && !e.shop_open && (
+          <div className="payment reminder">
+            <p><strong>Nezabudnite si kúpiť vstupenky, aby ste nemuseli stáť v rade!</strong></p>
+            <p><em>Samozrejme, hneď ako to bude možné 🙂</em></p>
+            <Link className="button button-small" to="/vstupenky">Kúpiť vstupenky</Link>
+          </div>
+        )}
+
+        {reg.status === 'confirmed' && (reg.payment_status === 'paid' || e.shop_open) && (
           <div className={`payment ${reg.payment_status === 'paid' ? 'paid' : ''}`}>
             {reg.payment_status === 'paid' ? (
               <p><strong>✅ Zaplatené</strong> · {eur(reg.amount_cents)} za {reg.team_size} osôb</p>
@@ -129,6 +137,7 @@ export default function Tickets() {
         </>
       )}
 
+      {reg.status === 'confirmed' && !onlySeat && <Attendance reg={reg} token={token} ask={params.get('ucast')} onChanged={reload} />}
       {reg.status !== 'cancelled' && !onlySeat && <ManageTeam reg={reg} token={token} onChanged={reload} />}
 
       {e.teaser && reg.teaser_answer !== null && (
@@ -164,7 +173,7 @@ function ManageTeam({ reg, token, onChanged }: { reg: RegistrationView; token: s
   }
   const diff = (size - reg.team_size) * e.price_per_person_cents
   return (
-    <details className="card">
+    <details className="card" id="zmena" open={location.hash === '#zmena'}>
       <summary>Zmeniť počet členov alebo zrušiť registráciu</summary>
       <p className="hint">
         {beforeDeadline
@@ -188,5 +197,39 @@ function ManageTeam({ reg, token, onChanged }: { reg: RegistrationView; token: s
       </div>
       {reg.paid_cents > reg.amount_cents && <p className="hint">Preplatok {eur(reg.paid_cents - reg.amount_cents)} vám vrátime.</p>}
     </details>
+  )
+}
+
+// Potvrdenie účasti (odkaz z e-mailu „Potvrďte účasť“). Vyžaduje kliknutie – e-mailové skenery odkazy otvárajú automaticky.
+function Attendance({ reg, token, ask, onChanged }: { reg: RegistrationView; token: string; ask: string | null; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const soon = new Date(reg.event.starts_at).getTime() - Date.now() < 7 * 24 * 3600e3
+  if (!ask && !soon && !reg.attendance) return null
+  if (new Date(reg.event.starts_at).getTime() <= Date.now()) return null
+
+  async function answer(a: 'yes' | 'no') {
+    if (a === 'no' && !confirm('Naozaj neprídete? Registrácia sa zruší a miesto uvoľníme ďalšiemu tímu.')) return
+    setBusy(true)
+    const { error } = await supabase.rpc('team_attendance', { p_token: token, p_answer: a })
+    setBusy(false)
+    if (error) alert(friendlyError(error.message))
+    else onChanged()
+  }
+  return (
+    <article className="card center" id="ucast">
+      {reg.attendance === 'yes' ? (
+        <p className="success">✅ Účasť potvrdená – tešíme sa na vás!</p>
+      ) : (
+        <>
+          <h2>Prídete na kvíz?</h2>
+          <p className="muted">Dajte nám vedieť, nech môžeme prípadne uvoľniť miesto ďalšiemu tímu.</p>
+          <div className="cta-row" style={{ justifyContent: 'center' }}>
+            <button className={`button ${ask === 'ano' ? 'pulse' : ''}`} disabled={busy} onClick={() => answer('yes')}>✅ Prídeme</button>
+            <a className="button button-ghost" href="#zmena" onClick={() => { const d = document.getElementById('zmena') as HTMLDetailsElement | null; if (d) d.open = true }}>Zmeniť počet</a>
+            <button className={`button button-danger ${ask === 'nie' ? 'pulse' : ''}`} disabled={busy} onClick={() => answer('no')}>❌ Neprídeme</button>
+          </div>
+        </>
+      )}
+    </article>
   )
 }

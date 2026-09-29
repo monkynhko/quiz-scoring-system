@@ -210,3 +210,10 @@ table.regs { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 
 .cta-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .teaser { background: rgba(250, 20, 195, 0.06); border: 1px dashed var(--line) !important; border-radius: 12px; padding: 12px 14px !important; }
+
+.payment.reminder { border-color: var(--pink); text-align: center; }
+.payment.reminder p { margin: 4px 0; }
+.payment.reminder em { color: var(--muted); }
+.payment.reminder .button { margin-top: 10px; }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 var(--pink-glow); } 50% { box-shadow: 0 0 0 10px transparent; } }
+.pulse { animation: pulse 1.4s ease-in-out infinite; }
