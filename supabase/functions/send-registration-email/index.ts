@@ -80,6 +80,7 @@ Deno.serve(async (req) => {
     subject = `Vaše lístky – ${reg.team_name} | ${ev.title}`
     html = layout('Platba prijatá, tu sú vaše lístky!', `${info}
       <p style="margin:0;line-height:1.5">Každý člen tímu ukáže pri vstupe svoj QR lístok. Lístky rozpošlete priamo zo stránky tlačidlom „Poslať“.</p>
+      <p style="margin:14px 0 0;font-size:13px;color:${C.muted};line-height:1.5">Do ${esc(when(new Date(new Date(ev.starts_at).getTime() - ev.change_deadline_hours * 3600e3).toISOString()))} môžete počet členov ľubovoľne meniť alebo registráciu zrušiť. Potom už môžete členov len pridať – pri neúčasti vstupné prepadá.</p>
       ${button(link, 'Zobraziť lístky')}`)
   } else if (reg.status === 'waitlist') {
     subject = `Čakacia listina – ${reg.team_name} | ${ev.title}`
@@ -100,7 +101,7 @@ Deno.serve(async (req) => {
     const deadline = when(new Date(new Date(ev.starts_at).getTime() - ev.change_deadline_hours * 3600e3).toISOString())
     const rules = `<p style="margin:14px 0 0;font-size:13px;color:${C.muted};line-height:1.5">
       Cena ${eur(reg.amount_cents / reg.team_size)}/os. platí pri platbe vopred online, na mieste je vstupné ${eur(ev.door_price_per_person_cents)}/os.
-      Počet členov môžete cez odkaz nižšie kedykoľvek zvýšiť. Znížiť ho alebo tím odhlásiť môžete najneskôr <b style="color:${C.text}">${esc(deadline)}</b> – neskôr vstupné prepadá.</p>`
+      Do <b style="color:${C.text}">${esc(deadline)}</b> môžete cez odkaz nižšie počet členov ľubovoľne meniť alebo registráciu zrušiť. Potom už môžete členov len pridať – pri neúčasti vstupné prepadá.</p>`
     html = layout('Registrácia prijatá!', `${info}${payment}${rules}${button(link, 'Moja registrácia')}`)
   }
 

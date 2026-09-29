@@ -35,6 +35,7 @@ export default function Home() {
               <strong>{dateLong(e.starts_at)}</strong> o {time(e.starts_at)} · {e.venue}
             </p>
             <p>Vstupné <strong>{eur(e.price_per_person_cents)}</strong> za osobu pri platbe vopred online, {eur(e.door_price_per_person_cents)} na mieste.</p>
+            <p className="muted small">Do {e.change_deadline_hours} h pred kvízom môžete počet členov ľubovoľne meniť alebo registráciu zrušiť. Potom už môžete členov len pridať.</p>
             {e.registration_open ? (
               <>
                 <p className={free > 0 ? 'spots' : 'spots spots-full'}>

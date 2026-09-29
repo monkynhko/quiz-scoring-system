@@ -16,9 +16,9 @@ export default function Terms() {
       </ul>
       <h2>Zmena počtu členov a odhlásenie</h2>
       <ul>
-        <li>Počet členov môžete <strong>zvýšiť kedykoľvek</strong> pred kvízom cez odkaz z e-mailu.</li>
-        <li>Počet členov môžete <strong>znížiť alebo tím odhlásiť najneskôr 48 hodín pred začiatkom kvízu</strong>. Už zaplatený rozdiel vám vrátime.</li>
-        <li>Pri neskoršom znížení počtu, odhlásení alebo neúčasti <strong>vstupné prepadá</strong> – miesto už nevieme obsadiť iným tímom.</li>
+        <li><strong>Do 48 hodín pred začiatkom kvízu</strong> môžete počet členov ľubovoľne meniť alebo registráciu úplne zrušiť – cez odkaz z e-mailu. Už zaplatený rozdiel vám vrátime.</li>
+        <li><strong>V posledných 48 hodinách</strong> môžete členov už len pridať.</li>
+        <li>Pri neskoršom znížení počtu, zrušení alebo neúčasti <strong>vstupné prepadá</strong> – miesto už nevieme obsadiť iným tímom.</li>
       </ul>
       <h2>Ostatné</h2>
       <ul>

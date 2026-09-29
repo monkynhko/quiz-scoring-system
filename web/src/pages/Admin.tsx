@@ -265,21 +265,26 @@ function Registrations({ event }: { event: EventRow }) {
   )
 }
 
-type StaffRow = { id: string; email: string; role: 'admin' | 'door' | null; last_sign_in_at: string | null; me: boolean }
+type StaffRow = { id: string; email: string; role: 'admin' | 'door' | null; is_owner: boolean; last_sign_in_at: string | null; me: boolean }
 const ROLE_LABEL = { admin: 'Admin', door: 'Vstup' }
 
 function Staff() {
   const [staff, setStaff] = useState<StaffRow[]>()
+  const [isOwner, setIsOwner] = useState(false)
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<'admin' | 'door'>('door')
   const [busy, setBusy] = useState(false)
 
   const call = useCallback(async (body: object) => {
     const { data, error } = await supabase.functions.invoke('manage-staff', { body })
-    if (error) { alert('Chyba: ' + error.message); return null }
+    if (error) {
+      const code = await (error as { context?: Response }).context?.json?.().then((b: { error?: string }) => b.error).catch(() => undefined)
+      alert(code === 'owner_only' ? 'Adminov môže pridávať a meniť iba hlavný admin.' : code === 'owner_protected' ? 'Hlavného admina nemožno meniť.' : 'Chyba: ' + (code ?? error.message))
+      return null
+    }
     return data
   }, [])
-  const load = useCallback(async () => { const d = await call({ action: 'list' }); if (d) setStaff(d.staff) }, [call])
+  const load = useCallback(async () => { const d = await call({ action: 'list' }); if (d) { setStaff(d.staff); setIsOwner(!!d.is_owner) } }, [call])
   useEffect(() => { load() }, [load])
 
   async function add(e: React.FormEvent) {
@@ -301,6 +306,7 @@ function Staff() {
         <p className="hint">
           <strong>Admin</strong> vidí všetko (administrácia, e-maily tímov, nastavenia). <strong>Vstup</strong> vidí iba obrazovku
           na vstupe na <code>/vstup</code>, bez e-mailov tímov. Prihlasuje sa odkazom zaslaným na e-mail. Nikto iný sa prihlásiť nevie.
+          {isOwner ? ' Ako hlavný admin môžete pridávať aj adminov.' : ' Adminov pridáva iba hlavný admin.'}
         </p>
         {!staff ? <Spinner /> : (
           <div className="table-wrap">
@@ -310,11 +316,11 @@ function Staff() {
                 {staff.filter((u) => u.role).map((u) => (
                   <tr key={u.id}>
                     <td>{u.email}{u.me && <span className="muted small"> (vy)</span>}</td>
-                    <td>{u.role ? ROLE_LABEL[u.role] : ''}</td>
+                    <td>{u.is_owner ? 'Hlavný admin' : u.role ? ROLE_LABEL[u.role] : ''}</td>
                     <td className="small">{u.last_sign_in_at ? dateTimeShort(u.last_sign_in_at) : 'ešte nie'}</td>
-                    <td className="actions">{!u.me && <>
-                      <button className="button button-small button-ghost" onClick={() => setRoleOf(u, u.role === 'admin' ? 'door' : 'admin')}>
-                        Zmeniť na {u.role === 'admin' ? 'Vstup' : 'Admin'}</button>
+                    <td className="actions">{!u.me && !u.is_owner && (isOwner || u.role === 'door') && <>
+                      {isOwner && <button className="button button-small button-ghost" onClick={() => setRoleOf(u, u.role === 'admin' ? 'door' : 'admin')}>
+                        Zmeniť na {u.role === 'admin' ? 'Vstup' : 'Admin'}</button>}
                       <button className="button button-small button-danger" onClick={() => setRoleOf(u, null)}>Odobrať</button>
                     </>}</td>
                   </tr>
@@ -328,7 +334,7 @@ function Staff() {
           <label>Rola
             <select value={role} onChange={(e) => setRole(e.target.value as 'admin' | 'door')}>
               <option value="door">Vstup – iba skenovanie lístkov</option>
-              <option value="admin">Admin – všetko</option>
+              {isOwner && <option value="admin">Admin – všetko</option>}
             </select>
           </label>
           <button className="button" disabled={busy}>{busy ? 'Pridávam…' : 'Pridať'}</button>

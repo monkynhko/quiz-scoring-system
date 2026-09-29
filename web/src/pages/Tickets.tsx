@@ -168,8 +168,8 @@ function ManageTeam({ reg, token, onChanged }: { reg: RegistrationView; token: s
       <h2>Zmena počtu členov</h2>
       <p className="hint">
         {beforeDeadline
-          ? <>Počet môžete znížiť alebo tím odhlásiť do <strong>{dateTimeShort(e.change_deadline)}</strong>. Neskôr už vstupné prepadá – náhradu za vás nezoženieme. Zvýšiť počet môžete kedykoľvek pred kvízom.</>
-          : <>Lehota na zníženie počtu a odhlásenie uplynula ({dateTimeShort(e.change_deadline)}). Počet môžete už len zvýšiť.</>}
+          ? <>Do <strong>{dateTimeShort(e.change_deadline)}</strong> môžete počet členov ľubovoľne meniť alebo registráciu zrušiť. Potom už môžete členov len pridať – pri neúčasti vstupné prepadá, náhradu za vás už nezoženieme.</>
+          : <>Lehota na zmeny uplynula ({dateTimeShort(e.change_deadline)}). Členov môžete už len pridať.</>}
       </p>
       <div className="admin-bar">
         <select value={size} onChange={(ev) => setSize(Number(ev.target.value))} disabled={busy}>
@@ -181,8 +181,8 @@ function ManageTeam({ reg, token, onChanged }: { reg: RegistrationView; token: s
         </button>
         {beforeDeadline && (
           <button className="button button-small button-danger" disabled={busy}
-            onClick={() => confirm('Naozaj odhlásiť tím z kvízu? Toto sa nedá vrátiť späť.') && run(() => supabase.rpc('team_cancel', { p_token: token }))}>
-            Odhlásiť tím
+            onClick={() => confirm('Naozaj zrušiť registráciu tímu? Toto sa nedá vrátiť späť.') && run(() => supabase.rpc('team_cancel', { p_token: token }))}>
+            Zrušiť registráciu
           </button>
         )}
       </div>

@@ -79,7 +79,7 @@ export default function Register() {
 
           <fieldset>
             <legend>Počet členov tímu</legend>
-            <span className="hint">Počet môžete neskôr zmeniť cez odkaz z e-mailu – zvýšiť kedykoľvek, znížiť najneskôr {event.change_deadline_hours} h pred kvízom.</span>
+            <span className="hint">Do {event.change_deadline_hours} h pred kvízom môžete počet ľubovoľne meniť alebo registráciu zrušiť (cez odkaz z e-mailu). Potom už môžete členov len pridať.</span>
             <div className="size-options">
               {sizes.map((n) => (
                 <label key={n} className={`size-option ${size === n ? 'selected' : ''}`}>
@@ -107,7 +107,7 @@ export default function Register() {
           <label className="checkbox-row">
             <input type="checkbox" required checked={consent} onChange={(e) => setConsent(e.target.checked)} />
             <span>
-              Súhlasím s <a href="/podmienky" target="_blank">podmienkami účasti</a> (zníženie počtu alebo odhlásenie najneskôr {event.change_deadline_hours} h pred kvízom, potom vstupné prepadá)
+              Súhlasím s <a href="/podmienky" target="_blank">podmienkami účasti</a> (počet členov môžem meniť alebo registráciu zrušiť do {event.change_deadline_hours} h pred kvízom, potom už len pridať – pri neúčasti vstupné prepadá)
               a so spracovaním e-mailu a názvu tímu podľa <a href="/ochrana-udajov" target="_blank">informácií o ochrane osobných údajov</a>.
             </span>
           </label>
