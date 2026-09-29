@@ -207,3 +207,6 @@ table.regs { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .badge { font-size: 0.75rem; font-weight: 700; border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
 .badge-paid { background: rgba(63, 232, 154, 0.18); color: var(--green); }
 .badge-unpaid { background: rgba(255, 210, 63, 0.18); color: var(--yellow); }
+
+.cta-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.teaser { background: rgba(250, 20, 195, 0.06); border: 1px dashed var(--line) !important; border-radius: 12px; padding: 12px 14px !important; }

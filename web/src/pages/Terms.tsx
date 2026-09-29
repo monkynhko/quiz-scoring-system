@@ -10,9 +10,8 @@ export default function Terms() {
       </ul>
       <h2>Vstupné a platba</h2>
       <ul>
-        <li>Vstupné sa platí za každého člena tímu. Pri platbe vopred online (prevodom cez QR kód) platí zvýhodnená cena, na mieste plná cena. Aktuálne ceny sú uvedené pri každom kvíze.</li>
-        <li>Online cenu môžete využiť pri platbe kedykoľvek pred začiatkom kvízu.</li>
-        <li>Lístky s QR kódmi dostanete po zaplatení. Každý člen tímu sa pri vstupe preukáže svojím lístkom.</li>
+        <li>Vstupné sa platí za každého člena tímu. Aktuálna cena je uvedená pri každom kvíze.</li>
+        <li>Vstupné sa zatiaľ platí na mieste. Online predaj vstupeniek pripravujeme.</li>
       </ul>
       <h2>Zmena počtu členov a odhlásenie</h2>
       <ul>

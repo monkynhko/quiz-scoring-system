@@ -67,7 +67,7 @@ export default function Tickets() {
                 <p>
                   {reg.paid_cents > 0
                     ? <><strong>Doplatok: {eur(reg.amount_cents - reg.paid_cents)}</strong> (spolu {eur(reg.amount_cents)}, zaplatené {eur(reg.paid_cents)})</>
-                    : <><strong>Na úhradu: {eur(reg.amount_cents)}</strong> ({reg.team_size} × {eur(reg.amount_cents / reg.team_size)})</>}
+                    : <><strong>Vstupné: {eur(reg.amount_cents)}</strong> ({reg.team_size} × {eur(reg.amount_cents / reg.team_size)})</>}
                 </p>
                 {payQr && e.payment_iban ? (
                   <div className="pay-grid">
@@ -78,10 +78,10 @@ export default function Tickets() {
                       <dt>Variabilný symbol</dt><dd><strong>{reg.variable_symbol}</strong></dd>
                       <dt>Suma</dt><dd>{eur(reg.amount_cents - reg.paid_cents)}</dd>
                     </dl>
-                    <p className="hint">Naskenujte QR kód v bankovej aplikácii. Po pripísaní platby vám pošleme lístky e-mailom a zobrazia sa aj tu. Online cena platí pri platbe kedykoľvek pred kvízom, na mieste je vstupné {eur(e.door_price_per_person_cents)}/os.</p>
+                    <p className="hint">Naskenujte QR kód v bankovej aplikácii. Po pripísaní platby vám pošleme vstupenky e-mailom a zobrazia sa aj tu.</p>
                   </div>
                 ) : (
-                  <p className="hint">Pokyny k platbe vám budú doručené čoskoro. Lístky dostanete po zaplatení. Na mieste je vstupné {eur(e.door_price_per_person_cents)}/os.</p>
+                  <p className="hint">Vstupné zaplatíte na mieste. Online predaj vstupeniek pripravujeme – po spustení vám dáme vedieť.</p>
                 )}
               </>
             )}
@@ -89,7 +89,7 @@ export default function Tickets() {
         )}
       </article>
 
-      {reg.status === 'confirmed' && reg.payment_status !== 'paid' && reg.tickets.length === 0 && (
+      {reg.status === 'confirmed' && reg.payment_status !== 'paid' && reg.tickets.length === 0 && e.payment_iban && (
         <>
           <h2 className="section-title">Lístky</h2>
           <div className="tickets">
@@ -164,11 +164,11 @@ function ManageTeam({ reg, token, onChanged }: { reg: RegistrationView; token: s
   }
   const diff = (size - reg.team_size) * e.price_per_person_cents
   return (
-    <article className="card">
-      <h2>Zmena počtu členov</h2>
+    <details className="card">
+      <summary>Zmeniť počet členov alebo zrušiť registráciu</summary>
       <p className="hint">
         {beforeDeadline
-          ? <>Do <strong>{dateTimeShort(e.change_deadline)}</strong> môžete počet členov ľubovoľne meniť alebo registráciu zrušiť. Potom už môžete členov len pridať – pri neúčasti vstupné prepadá, náhradu za vás už nezoženieme.</>
+          ? <>Do <strong>{dateTimeShort(e.change_deadline)}</strong> môžete počet ľubovoľne meniť alebo registráciu zrušiť. Potom už môžete členov len pridať.</>
           : <>Lehota na zmeny uplynula ({dateTimeShort(e.change_deadline)}). Členov môžete už len pridať.</>}
       </p>
       <div className="admin-bar">
@@ -176,7 +176,7 @@ function ManageTeam({ reg, token, onChanged }: { reg: RegistrationView; token: s
           {sizes.map((n) => <option key={n} value={n}>{n} {n >= 5 ? 'osôb' : 'osoby'}</option>)}
         </select>
         <button className="button button-small" disabled={busy || size === reg.team_size}
-          onClick={() => confirm(`Zmeniť počet členov na ${size}?${diff > 0 ? ` Doplatok ${eur(diff)}.` : ''}`) && run(() => supabase.rpc('team_change_size', { p_token: token, p_team_size: size }))}>
+          onClick={() => confirm(`Zmeniť počet členov na ${size}?${diff > 0 && reg.payment_status === 'paid' ? ` Doplatok ${eur(diff)}.` : ''}`) && run(() => supabase.rpc('team_change_size', { p_token: token, p_team_size: size }))}>
           Uložiť zmenu
         </button>
         {beforeDeadline && (
@@ -187,6 +187,6 @@ function ManageTeam({ reg, token, onChanged }: { reg: RegistrationView; token: s
         )}
       </div>
       {reg.paid_cents > reg.amount_cents && <p className="hint">Preplatok {eur(reg.paid_cents - reg.amount_cents)} vám vrátime.</p>}
-    </article>
+    </details>
   )
 }

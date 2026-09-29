@@ -19,7 +19,7 @@ export default function Home() {
     <>
       <section className="hero">
         <h1>Vedomostno-zábavný kvíz</h1>
-        <p className="lead">Tímy po 4–6 ľuďoch, 5 kôl, 10 tém a jeden víťaz. Prihláste svoj tím online a na vstupe už len ukážete lístky.</p>
+        <p className="lead">Tímy po 4–6 ľuďoch, 5 kôl, 10 tém a jeden víťaz.</p>
       </section>
 
       {error && <p className="alert">Nepodarilo sa načítať kvízy. Skúste obnoviť stránku.</p>}
@@ -34,16 +34,18 @@ export default function Home() {
             <p className="event-meta">
               <strong>{dateLong(e.starts_at)}</strong> o {time(e.starts_at)} · {e.venue}
             </p>
-            <p>Vstupné <strong>{eur(e.price_per_person_cents)}</strong> za osobu pri platbe vopred online, {eur(e.door_price_per_person_cents)} na mieste.</p>
-            <p className="muted small">Do {e.change_deadline_hours} h pred kvízom môžete počet členov ľubovoľne meniť alebo registráciu zrušiť. Potom už môžete členov len pridať.</p>
+            <p>Vstupné <strong>{eur(e.price_per_person_cents)}</strong> za osobu.</p>
             {e.registration_open ? (
               <>
                 <p className={free > 0 ? 'spots' : 'spots spots-full'}>
                   {spotsText(free)}
                 </p>
-                <Link className="button" to={`/registracia/${e.slug}`}>
-                  {free > 0 ? 'Prihlásiť tím' : 'Na čakaciu listinu'}
-                </Link>
+                <div className="cta-row">
+                  <Link className="button" to={`/registracia/${e.slug}`}>
+                    {free > 0 ? 'Registrovať tím' : 'Na čakaciu listinu'}
+                  </Link>
+                  <Link className="button button-ghost" to="/vstupenky">Kúpiť vstupenky</Link>
+                </div>
               </>
             ) : (
               <p className="muted">Registrácia zatiaľ nie je otvorená.</p>

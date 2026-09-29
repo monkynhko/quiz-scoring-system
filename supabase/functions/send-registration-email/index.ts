@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
     subject = `Vaše lístky – ${reg.team_name} | ${ev.title}`
     html = layout('Platba prijatá, tu sú vaše lístky!', `${info}
       <p style="margin:0;line-height:1.5">Každý člen tímu ukáže pri vstupe svoj QR lístok. Lístky rozpošlete priamo zo stránky tlačidlom „Poslať“.</p>
-      <p style="margin:14px 0 0;font-size:13px;color:${C.muted};line-height:1.5">Do ${esc(when(new Date(new Date(ev.starts_at).getTime() - ev.change_deadline_hours * 3600e3).toISOString()))} môžete počet členov ľubovoľne meniť alebo registráciu zrušiť. Potom už môžete členov len pridať – pri neúčasti vstupné prepadá.</p>
+      <p style="margin:14px 0 0;font-size:13px;color:${C.muted};line-height:1.5">Počet členov môžete zmeniť alebo registráciu zrušiť do ${esc(when(new Date(new Date(ev.starts_at).getTime() - ev.change_deadline_hours * 3600e3).toISOString()))}. Potom už môžete členov len pridať.</p>
       ${button(link, 'Zobraziť lístky')}`)
   } else if (reg.status === 'waitlist') {
     subject = `Čakacia listina – ${reg.team_name} | ${ev.title}`
@@ -97,11 +97,10 @@ Deno.serve(async (req) => {
            <tr><td style="padding:3px 14px 3px 0;color:${C.muted}">Suma</td><td><b>${eur(due)}</b></td></tr>
          </table>
          <p style="margin:8px 0 0;line-height:1.5">Po pripísaní platby vám pošleme lístky s QR kódmi.</p>`
-      : `<p style="margin:0;line-height:1.5">Na úhradu: <b style="color:${C.yellow};font-size:18px">${eur(due)}</b>. <b>Pokyny k platbe vám budú doručené čoskoro.</b> Po zaplatení dostanete lístky s QR kódmi.</p>`
+      : `<p style="margin:0;line-height:1.5">Vstupné <b style="color:${C.yellow};font-size:18px">${eur(due)}</b> (${reg.team_size} × ${eur(reg.amount_cents / reg.team_size)}) zaplatíte na mieste. Online predaj vstupeniek pripravujeme – po spustení vám dáme vedieť.</p>`
     const deadline = when(new Date(new Date(ev.starts_at).getTime() - ev.change_deadline_hours * 3600e3).toISOString())
     const rules = `<p style="margin:14px 0 0;font-size:13px;color:${C.muted};line-height:1.5">
-      Cena ${eur(reg.amount_cents / reg.team_size)}/os. platí pri platbe vopred online, na mieste je vstupné ${eur(ev.door_price_per_person_cents)}/os.
-      Do <b style="color:${C.text}">${esc(deadline)}</b> môžete cez odkaz nižšie počet členov ľubovoľne meniť alebo registráciu zrušiť. Potom už môžete členov len pridať – pri neúčasti vstupné prepadá.</p>`
+      Počet členov môžete zmeniť alebo registráciu zrušiť cez odkaz nižšie do <b style="color:${C.text}">${esc(deadline)}</b>. Potom už môžete členov len pridať.</p>`
     html = layout('Registrácia prijatá!', `${info}${payment}${rules}${button(link, 'Moja registrácia')}`)
   }
 
