@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { dateLong, dateTimeShort, eur, time } from '../lib/format'
 import { Spinner } from '../components'
+import { AdminGate } from '../AdminGate'
 
 type EventRow = {
   id: string; slug: string; title: string; starts_at: string; venue: string
@@ -17,52 +17,7 @@ type Reg = {
 }
 
 export default function Admin() {
-  const [session, setSession] = useState<Session | null>()
-  const [isAdmin, setIsAdmin] = useState<boolean>()
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
-    return () => data.subscription.unsubscribe()
-  }, [])
-
-  useEffect(() => {
-    if (!session) return
-    supabase.from('profiles').select('is_admin').eq('id', session.user.id).maybeSingle()
-      .then(({ data }) => setIsAdmin(!!data?.is_admin))
-  }, [session])
-
-  if (session === undefined) return <Spinner />
-  if (!session) return <Login />
-  if (isAdmin === undefined) return <Spinner />
-  if (!isAdmin) return (
-    <p className="card center">Účet {session.user.email} nemá administrátorské práva. <button className="link" onClick={() => supabase.auth.signOut()}>Odhlásiť</button></p>
-  )
-  return <Dashboard email={session.user.email ?? ''} />
-}
-
-function Login() {
-  const [email, setEmail] = useState('')
-  const [sent, setSent] = useState(false)
-  const [error, setError] = useState<string>()
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
-    const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: `${location.origin}/admin`, shouldCreateUser: false } })
-    if (error) setError(error.message)
-    else setSent(true)
-  }
-  return (
-    <article className="card narrow">
-      <h1>Administrácia</h1>
-      {sent ? <p>Poslali sme prihlasovací odkaz na <strong>{email}</strong>.</p> : (
-        <form onSubmit={submit} className="form">
-          <label>E-mail<input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-          {error && <p className="alert">{error}</p>}
-          <button className="button">Poslať prihlasovací odkaz</button>
-        </form>
-      )}
-    </article>
-  )
+  return <AdminGate>{(email) => <Dashboard email={email} />}</AdminGate>
 }
 
 function Dashboard({ email }: { email: string }) {
@@ -83,6 +38,7 @@ function Dashboard({ email }: { email: string }) {
         <select value={eventId} onChange={(e) => setEventId(e.target.value)}>
           {events?.map((e) => <option key={e.id} value={e.id}>{e.title}{e.is_public ? '' : ' (neverejný)'}</option>)}
         </select>
+        <a className="button button-small" href="/vstup">📷 Vstup / skenovanie</a>
         <span className="muted small">{email} · <button className="link" onClick={() => supabase.auth.signOut()}>Odhlásiť</button></span>
       </div>
       {!event ? <Spinner /> : (

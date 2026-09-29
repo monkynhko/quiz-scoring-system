@@ -168,3 +168,42 @@ table.regs { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 }
 
 .size-select { width: auto; padding: 4px 6px; }
+
+/* ---------- Vstup (skenovanie) ---------- */
+.door { max-width: 560px; margin: 0 auto; }
+.door-event { margin-bottom: 10px; }
+.door-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 600; margin-bottom: 10px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot-on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+.dot-off { background: var(--red); box-shadow: 0 0 8px var(--red); }
+.pill { background: var(--yellow); color: #1a1134; border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; }
+.door-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+.door-stats div { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 8px; text-align: center; }
+.door-stats strong { font-size: 1.5rem; }
+.door-stats span { display: block; color: var(--muted); font-size: 0.75rem; }
+.door-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px; }
+.door-tabs button { font: inherit; font-weight: 700; padding: 12px 6px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
+.door-tabs button.active { border-color: var(--pink); box-shadow: 0 0 12px var(--pink-glow); }
+.scanner-video { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 16px; background: #000; border: 2px solid var(--pink); box-shadow: 0 0 16px var(--pink-glow); }
+.manual { display: flex; gap: 8px; margin-top: 10px; }
+.door-result { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center; color: #fff; }
+.door-result-ok { background: rgba(10, 120, 60, 0.96); }
+.door-result-used, .door-result-cancelled, .door-result-unknown { background: rgba(170, 20, 40, 0.96); }
+.door-result-unpaid { background: rgba(160, 100, 0, 0.97); }
+.door-result-icon { font-size: 5rem; line-height: 1; }
+.door-result-title { font-size: 2.2rem; font-weight: 900; letter-spacing: 0.03em; }
+.door-result-team { font-size: 1.6rem; font-weight: 800; }
+.door-result-sub { font-size: 1.1rem; opacity: 0.95; }
+.door-result-hint { position: absolute; bottom: 24px; opacity: 0.7; font-size: 0.9rem; }
+.door-result-actions { display: grid; gap: 12px; width: min(360px, 100%); margin-top: 8px; }
+.door-result-actions .button-ghost { color: #fff; border-color: rgba(255,255,255,0.6); }
+.mono { font-family: ui-monospace, monospace; }
+.door-search { margin-bottom: 10px; font-size: 1.1rem; }
+.door-team { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+.door-team.all-in { opacity: 0.55; }
+.door-team-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.door-team-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.door-team-actions { display: flex; gap: 6px; }
+.badge { font-size: 0.75rem; font-weight: 700; border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
+.badge-paid { background: rgba(63, 232, 154, 0.18); color: var(--green); }
+.badge-unpaid { background: rgba(255, 210, 63, 0.18); color: var(--yellow); }
