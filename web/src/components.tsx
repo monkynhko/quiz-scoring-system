@@ -18,7 +18,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <a href="https://www.instagram.com/kviz.factory/" target="_blank" rel="noreferrer">Instagram</a>.
         </p>
         <p>
-          <Link to="/ochrana-udajov">Ochrana osobných údajov</Link> · SP Factory s.r.o.
+          <Link to="/podmienky">Podmienky účasti</Link> · <Link to="/ochrana-udajov">Ochrana osobných údajov</Link> · SP Factory s.r.o.
         </p>
       </footer>
     </div>

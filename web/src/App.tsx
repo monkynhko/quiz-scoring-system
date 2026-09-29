@@ -4,6 +4,7 @@ import { Layout } from './components'
 import Home from './pages/Home'
 import Register from './pages/Register'
 import Privacy from './pages/Privacy'
+import Terms from './pages/Terms'
 import { Spinner } from './components'
 
 // Lístky (QR + PAY by square) a administrácia sú väčšie – načítajú sa až keď treba
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/registracia/:slug" element={<Register />} />
           <Route path="/listky/:token" element={<Tickets />} />
           <Route path="/ochrana-udajov" element={<Privacy />} />
+          <Route path="/podmienky" element={<Terms />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/vstup" element={<Door />} />
           <Route path="*" element={<p className="card center">Stránka neexistuje.</p>} />

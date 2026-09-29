@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
-import { supabase, type RegistrationView } from '../lib/supabase'
-import { dateLong, eur, formatIban, time } from '../lib/format'
+import { friendlyError, supabase, type RegistrationView } from '../lib/supabase'
+import { dateLong, dateTimeShort, eur, formatIban, time } from '../lib/format'
 import { payBySquare } from '../lib/payBySquare'
 import { QR, Spinner } from '../components'
 
@@ -11,10 +11,9 @@ export default function Tickets() {
   const isNew = params.get('nova') === '1'
   const onlySeat = params.get('listok') ? Number(params.get('listok')) : null
   const [reg, setReg] = useState<RegistrationView | null>()
-
-  useEffect(() => {
-    supabase.rpc('registration_by_token', { p_token: token }).then(({ data, error }) => setReg(error ? null : (data as RegistrationView | null)))
-  }, [token])
+  const reload = () => supabase.rpc('registration_by_token', { p_token: token }).then(({ data, error }) => setReg(error ? null : (data as RegistrationView | null)))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { reload() }, [token])
 
   const payQr = useMemo(() => {
     if (!reg?.event.payment_iban || reg.payment_status !== 'unpaid' || reg.status !== 'confirmed') return null
@@ -79,10 +78,10 @@ export default function Tickets() {
                       <dt>Variabilný symbol</dt><dd><strong>{reg.variable_symbol}</strong></dd>
                       <dt>Suma</dt><dd>{eur(reg.amount_cents - reg.paid_cents)}</dd>
                     </dl>
-                    <p className="hint">Naskenujte QR kód v bankovej aplikácii. Po pripísaní platby vám pošleme lístky e-mailom a zobrazia sa aj tu.</p>
+                    <p className="hint">Naskenujte QR kód v bankovej aplikácii. Po pripísaní platby vám pošleme lístky e-mailom a zobrazia sa aj tu. Online cena platí pri platbe kedykoľvek pred kvízom, na mieste je vstupné {eur(e.door_price_per_person_cents)}/os.</p>
                   </div>
                 ) : (
-                  <p className="hint">Pokyny k platbe vám budú doručené čoskoro. Lístky dostanete po zaplatení.</p>
+                  <p className="hint">Pokyny k platbe vám budú doručené čoskoro. Lístky dostanete po zaplatení. Na mieste je vstupné {eur(e.door_price_per_person_cents)}/os.</p>
                 )}
               </>
             )}
@@ -130,6 +129,8 @@ export default function Tickets() {
         </>
       )}
 
+      {reg.status !== 'cancelled' && !onlySeat && <ManageTeam reg={reg} token={token} onChanged={reload} />}
+
       {e.teaser && reg.teaser_answer !== null && (
         <article className="card">
           <h2>Ochutnávka: {e.teaser.question}</h2>
@@ -140,5 +141,52 @@ export default function Tickets() {
         </article>
       )}
     </>
+  )
+}
+
+function ManageTeam({ reg, token, onChanged }: { reg: RegistrationView; token: string; onChanged: () => void }) {
+  const e = reg.event
+  const [size, setSize] = useState(reg.team_size)
+  const [busy, setBusy] = useState(false)
+  const now = Date.now()
+  const started = now >= new Date(e.starts_at).getTime()
+  const beforeDeadline = now < new Date(e.change_deadline).getTime()
+  if (started) return null
+  const sizes = Array.from({ length: e.max_team_size - e.min_team_size + 1 }, (_, i) => e.min_team_size + i)
+    .filter((n) => beforeDeadline || n >= reg.team_size)
+
+  async function run(fn: () => PromiseLike<{ error: { message: string } | null }>) {
+    setBusy(true)
+    const { error } = await fn()
+    setBusy(false)
+    if (error) alert(friendlyError(error.message))
+    else onChanged()
+  }
+  const diff = (size - reg.team_size) * e.price_per_person_cents
+  return (
+    <article className="card">
+      <h2>Zmena počtu členov</h2>
+      <p className="hint">
+        {beforeDeadline
+          ? <>Počet môžete znížiť alebo tím odhlásiť do <strong>{dateTimeShort(e.change_deadline)}</strong>. Neskôr už vstupné prepadá – náhradu za vás nezoženieme. Zvýšiť počet môžete kedykoľvek pred kvízom.</>
+          : <>Lehota na zníženie počtu a odhlásenie uplynula ({dateTimeShort(e.change_deadline)}). Počet môžete už len zvýšiť.</>}
+      </p>
+      <div className="admin-bar">
+        <select value={size} onChange={(ev) => setSize(Number(ev.target.value))} disabled={busy}>
+          {sizes.map((n) => <option key={n} value={n}>{n} {n >= 5 ? 'osôb' : 'osoby'}</option>)}
+        </select>
+        <button className="button button-small" disabled={busy || size === reg.team_size}
+          onClick={() => confirm(`Zmeniť počet členov na ${size}?${diff > 0 ? ` Doplatok ${eur(diff)}.` : ''}`) && run(() => supabase.rpc('team_change_size', { p_token: token, p_team_size: size }))}>
+          Uložiť zmenu
+        </button>
+        {beforeDeadline && (
+          <button className="button button-small button-danger" disabled={busy}
+            onClick={() => confirm('Naozaj odhlásiť tím z kvízu? Toto sa nedá vrátiť späť.') && run(() => supabase.rpc('team_cancel', { p_token: token }))}>
+            Odhlásiť tím
+          </button>
+        )}
+      </div>
+      {reg.paid_cents > reg.amount_cents && <p className="hint">Preplatok {eur(reg.paid_cents - reg.amount_cents)} vám vrátime.</p>}
+    </article>
   )
 }

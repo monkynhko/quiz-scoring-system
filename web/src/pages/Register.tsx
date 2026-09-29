@@ -79,6 +79,7 @@ export default function Register() {
 
           <fieldset>
             <legend>Počet členov tímu</legend>
+            <span className="hint">Počet môžete neskôr zmeniť cez odkaz z e-mailu – zvýšiť kedykoľvek, znížiť najneskôr {event.change_deadline_hours} h pred kvízom.</span>
             <div className="size-options">
               {sizes.map((n) => (
                 <label key={n} className={`size-option ${size === n ? 'selected' : ''}`}>
@@ -88,7 +89,7 @@ export default function Register() {
                 </label>
               ))}
             </div>
-            <span className="hint">Po zaplatení dostane každý člen vlastný lístok s QR kódom.</span>
+            <span className="hint">Ceny sú pri platbe vopred online ({eur(event.price_per_person_cents)}/os.). Na mieste {eur(event.door_price_per_person_cents)}/os. Po zaplatení dostane každý člen vlastný lístok s QR kódom.</span>
           </fieldset>
 
           {event.teaser_question && event.teaser_options && (
@@ -106,8 +107,8 @@ export default function Register() {
           <label className="checkbox-row">
             <input type="checkbox" required checked={consent} onChange={(e) => setConsent(e.target.checked)} />
             <span>
-              Súhlasím so spracovaním e-mailu a názvu tímu na účely registrácie podľa{' '}
-              <a href="/ochrana-udajov" target="_blank">informácií o ochrane osobných údajov</a>.
+              Súhlasím s <a href="/podmienky" target="_blank">podmienkami účasti</a> (zníženie počtu alebo odhlásenie najneskôr {event.change_deadline_hours} h pred kvízom, potom vstupné prepadá)
+              a so spracovaním e-mailu a názvu tímu podľa <a href="/ochrana-udajov" target="_blank">informácií o ochrane osobných údajov</a>.
             </span>
           </label>
 

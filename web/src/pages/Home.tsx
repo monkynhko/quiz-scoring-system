@@ -34,7 +34,7 @@ export default function Home() {
             <p className="event-meta">
               <strong>{dateLong(e.starts_at)}</strong> o {time(e.starts_at)} · {e.venue}
             </p>
-            <p>Vstupné {eur(e.price_per_person_cents)} za osobu.</p>
+            <p>Vstupné <strong>{eur(e.price_per_person_cents)}</strong> za osobu pri platbe vopred online, {eur(e.door_price_per_person_cents)} na mieste.</p>
             {e.registration_open ? (
               <>
                 <p className={free > 0 ? 'spots' : 'spots spots-full'}>

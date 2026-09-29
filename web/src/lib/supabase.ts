@@ -18,6 +18,8 @@ export type PublicEvent = {
   capacity_teams: number
   taken: number
   price_per_person_cents: number
+  door_price_per_person_cents: number
+  change_deadline_hours: number
   min_team_size: number
   max_team_size: number
   registration_open: boolean
@@ -43,6 +45,11 @@ export type RegistrationView = {
     payment_iban: string | null
     payment_beneficiary: string | null
     teaser: { question: string; options: string[]; correct: number } | null
+    price_per_person_cents: number
+    door_price_per_person_cents: number
+    min_team_size: number
+    max_team_size: number
+    change_deadline: string
   }
   tickets: { seat_no: number; code: string; checked_in: boolean }[]
 }
@@ -54,6 +61,9 @@ export function friendlyError(message: string | undefined): string {
   if (m.includes('registration_closed')) return 'Registrácia na tento kvíz je momentálne zatvorená.'
   if (m.includes('invalid_team_size')) return 'Neplatný počet členov tímu.'
   if (m.includes('event_not_found')) return 'Kvíz sa nenašiel.'
+  if (m.includes('deadline_passed')) return 'Lehota na zníženie počtu alebo odhlásenie už uplynula.'
+  if (m.includes('event_started')) return 'Kvíz už začal, zmeny nie sú možné.'
+  if (m.includes('tickets_already_used')) return 'Niektorý z lístkov už bol použitý.'
   if (m.includes('email')) return 'Skontrolujte prosím e-mailovú adresu.'
   return 'Niečo sa pokazilo. Skúste to prosím znova, prípadne nám napíšte na FB alebo IG.'
 }

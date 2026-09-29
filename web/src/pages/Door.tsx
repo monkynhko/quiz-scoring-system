@@ -13,8 +13,8 @@ type Team = {
   id: string; team_name: string; team_size: number; status: string
   payment_status: string; amount_cents: number; paid_cents: number; tickets: Ticket[]
 }
-type QueueItem = { kind: 'checkin'; code: string; at: string } | { kind: 'cash'; registration_id: string; at: string }
-type EventLite = { id: string; title: string; starts_at: string; slug: string; price_per_person_cents: number }
+type QueueItem = { kind: 'checkin'; code: string; at: string } | { kind: 'cash' | 'transfer'; registration_id: string; at: string }
+type EventLite = { id: string; title: string; starts_at: string; slug: string; price_per_person_cents: number; door_price_per_person_cents: number }
 type ScanResult =
   | { type: 'ok'; team: Team; seat: number }
   | { type: 'used'; team: Team; seat: number; at: string }
@@ -28,7 +28,7 @@ const load = <T,>(key: string, fallback: T): T => {
 const save = (key: string, v: unknown) => { try { localStorage.setItem(key, JSON.stringify(v)) } catch { /* plné úložisko */ } }
 
 export default function Door() {
-  return <AdminGate>{() => <DoorPicker />}</AdminGate>
+  return <AdminGate allow="staff">{() => <DoorPicker />}</AdminGate>
 }
 
 function DoorPicker() {
@@ -36,7 +36,7 @@ function DoorPicker() {
   const [eventId, setEventId] = useState<string | undefined>(() => load<string | undefined>('door:eventId', undefined))
 
   useEffect(() => {
-    supabase.from('events').select('id, title, starts_at, slug, price_per_person_cents').order('starts_at').then(({ data }) => {
+    supabase.from('events').select('id, title, starts_at, slug, price_per_person_cents, door_price_per_person_cents').order('starts_at').then(({ data }) => {
       if (!data) return
       setEvents(data)
       save('door:events', data)
@@ -73,7 +73,7 @@ function DoorScreen({ event }: { event: EventLite }) {
   const applyQueue = useCallback((list: Team[], q: QueueItem[]) => list.map((t) => {
     let team = t
     for (const item of q) {
-      if (item.kind === 'cash' && item.registration_id === t.id) team = { ...team, payment_status: 'paid', paid_cents: team.amount_cents }
+      if ((item.kind === 'cash' || item.kind === 'transfer') && item.registration_id === t.id) team = { ...team, payment_status: 'paid', paid_cents: team.amount_cents }
       if (item.kind === 'checkin' && team.tickets.some((x) => x.code === item.code && !x.checked_in_at))
         team = { ...team, tickets: team.tickets.map((x) => x.code === item.code ? { ...x, checked_in_at: item.at } : x) }
     }
@@ -81,10 +81,8 @@ function DoorScreen({ event }: { event: EventLite }) {
   }), [])
 
   const refresh = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('registrations')
-      .select('id, team_name, team_size, status, payment_status, amount_cents, paid_cents, tickets(code, seat_no, checked_in_at)')
-      .eq('event_id', event.id)
+    // door_snapshot = registrácie + lístky bez e-mailov (prístupné aj obsluhe vstupu)
+    const { data, error } = await supabase.rpc('door_snapshot', { p_event_id: event.id })
     if (error || !data) { setOnline(false); return }
     const list = applyQueue(data as Team[], queueRef.current)
     setTeams(list)
@@ -106,7 +104,7 @@ function DoorScreen({ event }: { event: EventLite }) {
         const item = queueRef.current[0]
         const { error } = item.kind === 'checkin'
           ? await supabase.rpc('check_in_ticket', { p_code: item.code, p_at: item.at })
-          : await supabase.rpc('set_registration_paid', { p_registration_id: item.registration_id, p_method: 'cash' })
+          : await supabase.rpc('door_mark_paid', { p_registration_id: item.registration_id, p_method: item.kind })
         if (error) {
           // sieťová chyba → skúsime neskôr; iná chyba → položku zahodíme, aby neblokovala frontu
           if (/fetch|network|Failed/i.test(error.message)) { setOnline(false); break }
@@ -149,9 +147,12 @@ function DoorScreen({ event }: { event: EventLite }) {
     updateTeams((list) => list.map((t) => ({ ...t, tickets: t.tickets.map((x) => codes.includes(x.code) && !x.checked_in_at ? { ...x, checked_in_at: at } : x) })))
     enqueue(codes.map((code) => ({ kind: 'checkin' as const, code, at })))
   }
-  const markCash = (team: Team) => {
-    updateTeams((list) => list.map((t) => t.id === team.id ? { ...t, payment_status: 'paid', paid_cents: t.amount_cents } : t))
-    enqueue([{ kind: 'cash', registration_id: team.id, at: new Date().toISOString() }])
+  // hotovosť = cena na mieste; prevod (ukázali potvrdenie z banky) = online cena
+  const doorAmount = (t: Team) => t.team_size * event.door_price_per_person_cents
+  const markPaid = (team: Team, method: 'cash' | 'transfer') => {
+    const amount = method === 'cash' ? doorAmount(team) : team.amount_cents
+    updateTeams((list) => list.map((t) => t.id === team.id ? { ...t, payment_status: 'paid', amount_cents: amount, paid_cents: amount } : t))
+    enqueue([{ kind: method, registration_id: team.id, at: new Date().toISOString() }])
   }
 
   const onScan = useCallback((raw: string) => {
@@ -196,14 +197,15 @@ function DoorScreen({ event }: { event: EventLite }) {
       </nav>
 
       {tab === 'scan' && <Scanner onScan={onScan} paused={!!result} />}
-      {tab === 'teams' && <TeamList teams={teams} onCheckIn={checkIn} onCash={markCash} />}
-      {tab === 'add' && <AddTeam eventId={event.id} price={event.price_per_person_cents} online={online} onAdded={() => { refresh(); setTab('teams') }} />}
+      {tab === 'teams' && <TeamList teams={teams} doorPrice={event.door_price_per_person_cents} onCheckIn={checkIn} onPaid={markPaid} />}
+      {tab === 'add' && <AddTeam eventId={event.id} price={event.door_price_per_person_cents} online={online} onAdded={() => { refresh(); setTab('teams') }} />}
 
       {result && (
         <ResultOverlay
           result={result}
           onClose={() => setResult(undefined)}
-          onCashAndIn={(r) => { markCash(r.team); checkIn([r.code]); feedback(true); setResult({ type: 'ok', team: r.team, seat: r.seat }) }}
+          doorPrice={event.door_price_per_person_cents}
+          onPaidAndIn={(r, method) => { markPaid(r.team, method); checkIn([r.code]); feedback(true); setResult({ type: 'ok', team: r.team, seat: r.seat }) }}
         />
       )}
     </>
@@ -249,10 +251,11 @@ function Scanner({ onScan, paused }: { onScan: (code: string) => void; paused: b
   )
 }
 
-function ResultOverlay({ result, onClose, onCashAndIn }: {
+function ResultOverlay({ result, onClose, onPaidAndIn, doorPrice }: {
   result: ScanResult
   onClose: () => void
-  onCashAndIn: (r: Extract<ScanResult, { type: 'unpaid' }>) => void
+  onPaidAndIn: (r: Extract<ScanResult, { type: 'unpaid' }>, method: 'cash' | 'transfer') => void
+  doorPrice: number
 }) {
   // úspešný sken sa zavrie sám, aby sa dalo plynulo skenovať ďalej
   useEffect(() => {
@@ -275,8 +278,9 @@ function ResultOverlay({ result, onClose, onCashAndIn }: {
       {result.type === 'unknown' && <div className="door-result-sub mono">{result.code.slice(0, 40)}</div>}
       {result.type === 'unpaid' && (
         <div className="door-result-actions">
-          <div className="door-result-sub">Vybrať {eur(team!.amount_cents - team!.paid_cents)} za celý tím ({team!.team_size} os.)</div>
-          <button className="button" onClick={() => onCashAndIn(result)}>Zaplatené v hotovosti ✓ a pustiť</button>
+          <div className="door-result-sub">Na mieste {eur(team!.team_size * doorPrice - team!.paid_cents)} za celý tím ({team!.team_size} × {eur(doorPrice)})</div>
+          <button className="button" onClick={() => onPaidAndIn(result, 'cash')}>Hotovosť {eur(team!.team_size * doorPrice - team!.paid_cents)} ✓ a pustiť</button>
+          <button className="button button-ghost" onClick={() => onPaidAndIn(result, 'transfer')}>Ukázali platbu prevodom ({eur(team!.amount_cents - team!.paid_cents)}) ✓ a pustiť</button>
           <button className="button button-ghost" onClick={onClose}>Zrušiť</button>
         </div>
       )}
@@ -285,7 +289,7 @@ function ResultOverlay({ result, onClose, onCashAndIn }: {
   )
 }
 
-function TeamList({ teams, onCheckIn, onCash }: { teams: Team[]; onCheckIn: (codes: string[]) => void; onCash: (t: Team) => void }) {
+function TeamList({ teams, doorPrice, onCheckIn, onPaid }: { teams: Team[]; doorPrice: number; onCheckIn: (codes: string[]) => void; onPaid: (t: Team, method: 'cash' | 'transfer') => void }) {
   const [q, setQ] = useState('')
   const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   const shown = teams
@@ -302,12 +306,15 @@ function TeamList({ teams, onCheckIn, onCash }: { teams: Team[]; onCheckIn: (cod
           <div key={t.id} className={`door-team ${inside === t.team_size ? 'all-in' : ''}`}>
             <div className="door-team-head">
               <strong>{t.team_name}</strong>
-              <span className={paid ? 'badge badge-paid' : 'badge badge-unpaid'}>{paid ? 'zaplatené' : `nezaplatené ${eur(t.amount_cents - t.paid_cents)}`}</span>
+              <span className={paid ? 'badge badge-paid' : 'badge badge-unpaid'}>{paid ? 'zaplatené' : 'nezaplatené'}</span>
             </div>
             <div className="door-team-row">
               <span>vnútri <strong>{inside}/{t.team_size}</strong></span>
               <span className="door-team-actions">
-                {!paid && <button className="button button-small" onClick={() => confirm(`Tím „${t.team_name}“ zaplatil ${eur(t.amount_cents - t.paid_cents)} v hotovosti?`) && onCash(t)}>Hotovosť ✓</button>}
+                {!paid && <>
+                  <button className="button button-small" onClick={() => confirm(`Tím „${t.team_name}“ zaplatil v hotovosti ${eur(t.team_size * doorPrice - t.paid_cents)}?`) && onPaid(t, 'cash')}>Hotovosť {eur(t.team_size * doorPrice - t.paid_cents)}</button>
+                  <button className="button button-small button-ghost" onClick={() => confirm(`Tím „${t.team_name}“ ukázal platbu prevodom ${eur(t.amount_cents - t.paid_cents)}?`) && onPaid(t, 'transfer')}>Prevod</button>
+                </>}
                 {paid && unused.length > 0 && <>
                   <button className="button button-small button-ghost" onClick={() => onCheckIn([unused[0].code])}>Pustiť 1</button>
                   {unused.length > 1 && <button className="button button-small" onClick={() => onCheckIn(unused.map((x) => x.code))}>Pustiť {unused.length}</button>}
@@ -343,7 +350,7 @@ function AddTeam({ eventId, price, online, onAdded }: { eventId: string; price: 
       <label>Počet ľudí
         <select value={size} onChange={(e) => setSize(Number(e.target.value))}>{[6, 5, 4, 3, 2, 1].map((n) => <option key={n}>{n}</option>)}</select>
       </label>
-      <label className="checkbox-row"><input type="checkbox" checked={paid} onChange={(e) => setPaid(e.target.checked)} /> <span>Zaplatené v hotovosti ({eur(size * price)})</span></label>
+      <label className="checkbox-row"><input type="checkbox" checked={paid} onChange={(e) => setPaid(e.target.checked)} /> <span>Zaplatené v hotovosti ({eur(size * price)}, cena na mieste)</span></label>
       <button className="button" disabled={busy || !online}>{busy ? 'Pridávam…' : 'Pridať tím'}</button>
       <p className="hint">Tím sa pridá aj nad kapacitu. Členov potom pustíte v záložke Tímy.</p>
     </form>

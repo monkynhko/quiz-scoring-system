@@ -6,7 +6,8 @@ import { AdminGate } from '../AdminGate'
 
 type EventRow = {
   id: string; slug: string; title: string; starts_at: string; venue: string
-  capacity_teams: number; price_per_person_cents: number; registration_open: boolean; is_public: boolean
+  capacity_teams: number; price_per_person_cents: number; door_price_per_person_cents: number; change_deadline_hours: number
+  registration_open: boolean; is_public: boolean
   payment_iban: string | null; payment_beneficiary: string | null
   teaser: { question: string; options: string[]; correct: number } | null
 }
@@ -45,6 +46,7 @@ function Dashboard({ email }: { email: string }) {
         <>
           <EventSettings key={event.id} event={event} onSaved={loadEvents} />
           <Registrations event={event} />
+          <Staff />
         </>
       )}
     </>
@@ -53,6 +55,9 @@ function Dashboard({ email }: { email: string }) {
 
 function EventSettings({ event, onSaved }: { event: EventRow; onSaved: () => void }) {
   const [capacity, setCapacity] = useState(event.capacity_teams)
+  const [price, setPrice] = useState(event.price_per_person_cents / 100)
+  const [doorPrice, setDoorPrice] = useState(event.door_price_per_person_cents / 100)
+  const [deadline, setDeadline] = useState(event.change_deadline_hours)
   const [iban, setIban] = useState(event.payment_iban ?? '')
   const [beneficiary, setBeneficiary] = useState(event.payment_beneficiary ?? '')
   const [tq, setTq] = useState(event.teaser?.question ?? '')
@@ -73,6 +78,9 @@ function EventSettings({ event, onSaved }: { event: EventRow; onSaved: () => voi
     const options = to.split('\n').map((s) => s.trim()).filter(Boolean)
     update({
       capacity_teams: capacity,
+      price_per_person_cents: Math.round(price * 100),
+      door_price_per_person_cents: Math.round(doorPrice * 100),
+      change_deadline_hours: deadline,
       payment_iban: iban.replace(/\s+/g, '').toUpperCase() || null,
       payment_beneficiary: beneficiary.trim() || null,
       teaser: tq.trim() && options.length >= 2 ? { question: tq.trim(), options, correct: Math.min(tc, options.length - 1) } : null,
@@ -103,9 +111,13 @@ function EventSettings({ event, onSaved }: { event: EventRow; onSaved: () => voi
       </p>
 
       <details>
-        <summary>Nastavenia (kapacita, platba, ochutnávka)</summary>
+        <summary>Nastavenia (kapacita, ceny, platba, ochutnávka)</summary>
         <form className="form" onSubmit={saveSettings}>
           <label>Kapacita (tímov)<input type="number" min={1} value={capacity} onChange={(e) => setCapacity(Number(e.target.value))} /></label>
+          <label>Cena za osobu online (€)<input type="number" min={0} step={0.5} value={price} onChange={(e) => setPrice(Number(e.target.value))} />
+            <span className="hint">Platí pre nové registrácie a zmeny počtu. Už zaregistrované tímy si ponechajú svoju sumu.</span></label>
+          <label>Cena za osobu na mieste (€)<input type="number" min={0} step={0.5} value={doorPrice} onChange={(e) => setDoorPrice(Number(e.target.value))} /></label>
+          <label>Zníženie počtu / odhlásenie najneskôr (hodín pred kvízom)<input type="number" min={0} value={deadline} onChange={(e) => setDeadline(Number(e.target.value))} /></label>
           <label>IBAN na prevod<input value={iban} onChange={(e) => setIban(e.target.value)} placeholder="prázdne = iba platba na mieste" /></label>
           <label>Príjemca platby<input value={beneficiary} onChange={(e) => setBeneficiary(e.target.value)} /></label>
           <label>Ochutnávková otázka<input value={tq} onChange={(e) => setTq(e.target.value)} placeholder="nepovinné" /></label>
@@ -222,10 +234,12 @@ function Registrations({ event }: { event: EventRow }) {
                 </td>
                 <td>{STATUS_LABEL[r.status]}</td>
                 <td>{r.payment_status === 'paid'
-                  ? `✅ ${r.payment_method === 'cash' ? 'hotovosť' : r.payment_method === 'transfer' ? 'prevod' : r.payment_method ?? ''}`
+                  ? <>✅ {r.payment_method === 'cash' ? 'hotovosť' : r.payment_method === 'transfer' ? 'prevod' : r.payment_method ?? ''}
+                      {r.paid_cents > r.amount_cents && <><br /><span className="warn">vrátiť {eur(r.paid_cents - r.amount_cents)}</span></>}</>
                   : r.paid_cents > 0 ? <>doplatiť {eur(r.amount_cents - r.paid_cents)}<br /><span className="muted small">zapl. {eur(r.paid_cents)}</span></> : eur(r.amount_cents)}</td>
                 <td>{r.variable_symbol}</td>
-                <td className="small">{dateTimeShort(r.created_at)}{r.email_sent_at ? '' : <><br /><span className="warn">e-mail neodišiel</span></>}</td>
+                <td className="small">{dateTimeShort(r.created_at)}{r.email_sent_at ? '' : <><br /><span className="warn">e-mail neodišiel</span></>}
+                  {r.admin_note && <><br /><span className="muted">{r.admin_note}</span></>}</td>
                 <td className="actions">
                   {busyId === r.id ? '…' : (
                     <>
@@ -247,6 +261,79 @@ function Registrations({ event }: { event: EventRow }) {
         </table>
         {regs.length === 0 && <p className="muted center">Zatiaľ žiadne registrácie.</p>}
       </div>
+    </article>
+  )
+}
+
+type StaffRow = { id: string; email: string; role: 'admin' | 'door' | null; last_sign_in_at: string | null; me: boolean }
+const ROLE_LABEL = { admin: 'Admin', door: 'Vstup' }
+
+function Staff() {
+  const [staff, setStaff] = useState<StaffRow[]>()
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState<'admin' | 'door'>('door')
+  const [busy, setBusy] = useState(false)
+
+  const call = useCallback(async (body: object) => {
+    const { data, error } = await supabase.functions.invoke('manage-staff', { body })
+    if (error) { alert('Chyba: ' + error.message); return null }
+    return data
+  }, [])
+  const load = useCallback(async () => { const d = await call({ action: 'list' }); if (d) setStaff(d.staff) }, [call])
+  useEffect(() => { load() }, [load])
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy(true)
+    if (await call({ action: 'add', email, role })) { setEmail(''); await load() }
+    setBusy(false)
+  }
+  async function setRoleOf(u: StaffRow, r: 'admin' | 'door' | null) {
+    const msg = r === null ? `Odobrať prístup pre ${u.email}?` : `Zmeniť rolu ${u.email} na ${ROLE_LABEL[r]}?`
+    if (!confirm(msg)) return
+    if (await call({ action: 'set_role', user_id: u.id, role: r })) load()
+  }
+
+  return (
+    <article className="card">
+      <details>
+        <summary>Organizátori a prístupy</summary>
+        <p className="hint">
+          <strong>Admin</strong> vidí všetko (administrácia, e-maily tímov, nastavenia). <strong>Vstup</strong> vidí iba obrazovku
+          na vstupe na <code>/vstup</code>, bez e-mailov tímov. Prihlasuje sa odkazom zaslaným na e-mail. Nikto iný sa prihlásiť nevie.
+        </p>
+        {!staff ? <Spinner /> : (
+          <div className="table-wrap">
+            <table className="regs">
+              <thead><tr><th>E-mail</th><th>Rola</th><th>Naposledy prihlásený</th><th></th></tr></thead>
+              <tbody>
+                {staff.filter((u) => u.role).map((u) => (
+                  <tr key={u.id}>
+                    <td>{u.email}{u.me && <span className="muted small"> (vy)</span>}</td>
+                    <td>{u.role ? ROLE_LABEL[u.role] : ''}</td>
+                    <td className="small">{u.last_sign_in_at ? dateTimeShort(u.last_sign_in_at) : 'ešte nie'}</td>
+                    <td className="actions">{!u.me && <>
+                      <button className="button button-small button-ghost" onClick={() => setRoleOf(u, u.role === 'admin' ? 'door' : 'admin')}>
+                        Zmeniť na {u.role === 'admin' ? 'Vstup' : 'Admin'}</button>
+                      <button className="button button-small button-danger" onClick={() => setRoleOf(u, null)}>Odobrať</button>
+                    </>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <form className="form" onSubmit={add}>
+          <label>Pridať e-mail<input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+          <label>Rola
+            <select value={role} onChange={(e) => setRole(e.target.value as 'admin' | 'door')}>
+              <option value="door">Vstup – iba skenovanie lístkov</option>
+              <option value="admin">Admin – všetko</option>
+            </select>
+          </label>
+          <button className="button" disabled={busy}>{busy ? 'Pridávam…' : 'Pridať'}</button>
+        </form>
+      </details>
     </article>
   )
 }

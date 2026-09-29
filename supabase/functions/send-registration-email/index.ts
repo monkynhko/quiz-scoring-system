@@ -59,7 +59,7 @@ Deno.serve(async (req) => {
 
   const { data: reg } = await admin
     .from('registrations')
-    .select('id, team_name, email, team_size, status, amount_cents, paid_cents, variable_symbol, payment_status, email_sent_at, created_at, events(title, starts_at, venue, payment_iban, payment_beneficiary)')
+    .select('id, team_name, email, team_size, status, amount_cents, paid_cents, variable_symbol, payment_status, email_sent_at, created_at, events(title, starts_at, venue, payment_iban, payment_beneficiary, door_price_per_person_cents, change_deadline_hours)')
     .eq('manage_token', token)
     .maybeSingle()
   if (!reg) return json({ error: 'not_found' }, 404)
@@ -69,7 +69,7 @@ Deno.serve(async (req) => {
   }
   if (kind === 'tickets' && reg.payment_status !== 'paid') return json({ error: 'not_paid' }, 400)
 
-  const ev = reg.events as unknown as { title: string; starts_at: string; venue: string; payment_iban: string | null; payment_beneficiary: string | null }
+  const ev = reg.events as unknown as { title: string; starts_at: string; venue: string; payment_iban: string | null; payment_beneficiary: string | null; door_price_per_person_cents: number; change_deadline_hours: number }
   const link = `${SITE_URL}/listky/${token}`
   const info = `<p style="margin:0 0 14px;color:${C.muted};line-height:1.5"><b style="color:${C.text};font-size:17px">${esc(reg.team_name)}</b> · ${reg.team_size} ${people(reg.team_size)}<br>
     ${esc(ev.title)}<br><b style="color:${C.text}">${esc(when(ev.starts_at))}</b> · ${esc(ev.venue)}</p>`
@@ -97,7 +97,11 @@ Deno.serve(async (req) => {
          </table>
          <p style="margin:8px 0 0;line-height:1.5">Po pripísaní platby vám pošleme lístky s QR kódmi.</p>`
       : `<p style="margin:0;line-height:1.5">Na úhradu: <b style="color:${C.yellow};font-size:18px">${eur(due)}</b>. <b>Pokyny k platbe vám budú doručené čoskoro.</b> Po zaplatení dostanete lístky s QR kódmi.</p>`
-    html = layout('Registrácia prijatá!', `${info}${payment}${button(link, 'Moja registrácia')}`)
+    const deadline = when(new Date(new Date(ev.starts_at).getTime() - ev.change_deadline_hours * 3600e3).toISOString())
+    const rules = `<p style="margin:14px 0 0;font-size:13px;color:${C.muted};line-height:1.5">
+      Cena ${eur(reg.amount_cents / reg.team_size)}/os. platí pri platbe vopred online, na mieste je vstupné ${eur(ev.door_price_per_person_cents)}/os.
+      Počet členov môžete cez odkaz nižšie kedykoľvek zvýšiť. Znížiť ho alebo tím odhlásiť môžete najneskôr <b style="color:${C.text}">${esc(deadline)}</b> – neskôr vstupné prepadá.</p>`
+    html = layout('Registrácia prijatá!', `${info}${payment}${rules}${button(link, 'Moja registrácia')}`)
   }
 
   const r = await fetch('https://api.resend.com/emails', {
