@@ -37,7 +37,7 @@ export default function Home() {
             {e.registration_open ? (
               <>
                 <p className={free > 0 ? 'spots' : 'spots spots-full'}>
-                  {spotsText(free)}
+                  {spotsText(free, e.capacity_teams)}
                 </p>
                 <div className="cta-row">
                   <Link className="button" to={`/registracia/${e.slug}`}>
@@ -53,7 +53,7 @@ export default function Home() {
         )
       })}
 
-      <p className="center muted small"><a href="https://monkynhko.github.io/quiz-scoring-system/leaderboard.html">Výsledky a ligová tabuľka</a></p>
+      <p className="center muted small"><a href="/vysledky/">Výsledky a ligová tabuľka</a></p>
     </>
   )
 }

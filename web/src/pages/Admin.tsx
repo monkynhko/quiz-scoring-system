@@ -168,6 +168,7 @@ const STATUS_LABEL: Record<string, string> = { confirmed: 'Potvrdený', waitlist
 function Registrations({ event }: { event: EventRow }) {
   const [regs, setRegs] = useState<Reg[]>()
   const [filter, setFilter] = useState('')
+  const [showCancelled, setShowCancelled] = useState(false)
   const [busyId, setBusyId] = useState<string>()
 
   const load = useCallback(async () => {
@@ -197,7 +198,9 @@ function Registrations({ event }: { event: EventRow }) {
     }
   }, [regs])
 
+  const cancelledCount = (regs ?? []).filter((r) => r.status === 'cancelled').length
   const shown = (regs ?? []).filter((r) => {
+    if (r.status === 'cancelled' && !showCancelled) return false
     const q = filter.trim().toLowerCase()
     return !q || r.team_name.toLowerCase().includes(q) || r.email.includes(q) || r.variable_symbol.includes(q)
   })
@@ -222,6 +225,8 @@ function Registrations({ event }: { event: EventRow }) {
   const changeSize = (r: Reg, size: number) =>
     size !== r.team_size && confirm(`Zmeniť počet členov tímu „${r.team_name}“ z ${r.team_size} na ${size}? Pôvodné lístky ostanú platné.`) &&
     act(r, () => supabase.rpc('change_team_size', { p_registration_id: r.id, p_team_size: size }))
+  const purge = (r: Reg) => confirm(`Natrvalo zmazať zrušenú registráciu „${r.team_name}“ (${r.email})? Toto sa nedá vrátiť.`) &&
+    act(r, () => supabase.from('registrations').delete().eq('id', r.id))
   const cancel = (r: Reg) => confirm(`Zrušiť registráciu tímu „${r.team_name}“?`) && act(r, () => supabase.from('registrations').update({ status: 'cancelled' }).eq('id', r.id))
   const confirmReg = (r: Reg) => act(r, () => supabase.rpc('confirm_registration', { p_registration_id: r.id }))
   const resend = (r: Reg) => {
@@ -279,13 +284,17 @@ function Registrations({ event }: { event: EventRow }) {
           <button className="button button-small button-ghost" onClick={exportCsv}>Export CSV</button>
         </span>
       </div>
+      <div className="admin-bar">
+        <label className="checkbox-row small"><input type="checkbox" checked={showCancelled} onChange={(e) => setShowCancelled(e.target.checked)} />
+          <span>Zobraziť zrušené registrácie ({cancelledCount})</span></label>
+      </div>
       <div className="table-wrap">
         <table className="regs">
           <thead><tr><th>#</th><th>Tím</th><th>Ľudí</th><th>Stav</th><th>Platba</th><th>VS</th><th>Registrovaný</th><th></th></tr></thead>
           <tbody>
             {shown.map((r) => (
               <tr key={r.id} className={`st-${r.status} pay-${r.payment_status}`}>
-                <td>{regs.indexOf(r) + 1}</td>
+                <td>{r.status === 'cancelled' ? '–' : regs.filter((x) => x.status !== 'cancelled').indexOf(r) + 1}</td>
                 <td><strong>{r.team_name}</strong><br /><span className="muted small">{r.email}</span></td>
                 <td>
                   <select className="size-select" value={r.team_size} disabled={busyId === r.id || r.status === 'cancelled'} onChange={(e) => changeSize(r, Number(e.target.value))}>
@@ -313,6 +322,7 @@ function Registrations({ event }: { event: EventRow }) {
                       {r.status !== 'cancelled' && <button className="button button-small button-ghost" onClick={() => resend(r)}>E-mail</button>}
                       <a className="button button-small button-ghost" href={`/listky/${r.manage_token}`} target="_blank" rel="noreferrer">Lístky</a>
                       {r.status !== 'cancelled' && <button className="button button-small button-danger" onClick={() => cancel(r)}>Zrušiť</button>}
+                      {r.status === 'cancelled' && <button className="button button-small button-danger" onClick={() => purge(r)}>Zmazať natrvalo</button>}
                     </>
                   )}
                 </td>
@@ -320,7 +330,7 @@ function Registrations({ event }: { event: EventRow }) {
             ))}
           </tbody>
         </table>
-        {regs.length === 0 && <p className="muted center">Zatiaľ žiadne registrácie.</p>}
+        {shown.length === 0 && <p className="muted center">{regs.length ? 'Žiadne aktívne registrácie.' : 'Zatiaľ žiadne registrácie.'}</p>}
       </div>
     </article>
   )
