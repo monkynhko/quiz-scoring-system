@@ -9,7 +9,8 @@ export default function Privacy() {
       <ul>
         <li>evidencia registrácie a kapacity kvízu,</li>
         <li>zaslanie lístkov a informácií k platbe a kvízu, na ktorý ste sa prihlásili,</li>
-        <li>kontrola vstupu na podujatie a zverejnenie výsledkov (výsledky obsahujú iba názov tímu).</li>
+        <li>kontrola vstupu na podujatie,</li>
+        <li>zverejnenie zoznamu prihlásených tímov a výsledkov – zverejňujeme iba názov tímu.</li>
       </ul>
       <p>Právnym základom je plnenie zmluvy (účasť na podujatí), o ktorú ste požiadali registráciou. Neposielame vám reklamu a údaje nepredávame ani neposkytujeme tretím stranám na marketing.</p>
       <h2>Kto má k údajom prístup</h2>

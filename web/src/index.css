@@ -299,3 +299,7 @@ table.regs { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .projector.big { font-size: clamp(16px, 1.9vw, 34px); }
 .projector.big h1 { font-size: 1.6em; }
 .projector.big .board td { padding: 0.35em 0.4em; }
+
+.team-list { columns: 2 220px; column-gap: 28px; padding-left: 1.6em; margin: 14px 0 20px; }
+.team-list li { padding: 4px 0; break-inside: avoid; font-weight: 600; }
+.team-list li::marker { color: var(--pink-soft); }
