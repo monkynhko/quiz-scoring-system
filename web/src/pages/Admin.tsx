@@ -230,6 +230,11 @@ function Registrations({ event }: { event: EventRow }) {
   const changeSize = (r: Reg, size: number) =>
     size !== r.team_size && confirm(`Zmeniť počet členov tímu „${r.team_name}“ z ${r.team_size} na ${size}? Pôvodné lístky ostanú platné.`) &&
     act(r, () => supabase.rpc('change_team_size', { p_registration_id: r.id, p_team_size: size }))
+  const rename = (r: Reg) => {
+    const name = prompt('Nový názov tímu:', r.team_name)?.trim()
+    if (!name || name === r.team_name) return
+    act(r, () => supabase.from('registrations').update({ team_name: name }).eq('id', r.id))
+  }
   const purge = (r: Reg) => confirm(`Natrvalo zmazať zrušenú registráciu „${r.team_name}“ (${r.email})? Toto sa nedá vrátiť.`) &&
     act(r, () => supabase.from('registrations').delete().eq('id', r.id))
   const cancel = (r: Reg) => confirm(`Zrušiť registráciu tímu „${r.team_name}“?`) && act(r, () => supabase.from('registrations').update({ status: 'cancelled' }).eq('id', r.id))
@@ -300,7 +305,7 @@ function Registrations({ event }: { event: EventRow }) {
             {shown.map((r) => (
               <tr key={r.id} className={`st-${r.status} pay-${r.payment_status}`}>
                 <td>{r.status === 'cancelled' ? '–' : regs.filter((x) => x.status !== 'cancelled').indexOf(r) + 1}</td>
-                <td><strong>{r.team_name}</strong><br /><span className="muted small">{r.email}</span></td>
+                <td><strong>{r.team_name}</strong> <button className="link small" title="Premenovať tím" onClick={() => rename(r)}>✏️</button><br /><span className="muted small">{r.email}</span></td>
                 <td>
                   <select className="size-select" value={r.team_size} disabled={busyId === r.id || r.status === 'cancelled'} onChange={(e) => changeSize(r, Number(e.target.value))}>
                     {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}

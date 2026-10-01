@@ -30,6 +30,7 @@ export default function Register() {
     ev.preventDefault()
     if (!event || sending) return
     if (!size) { setError('Zvoľte prosím počet členov tímu.'); return }
+    if (teamName.includes('@')) { setError('Do poľa „Názov tímu“ zadajte názov tímu, nie e-mail.'); return }
     setSending(true)
     setError(undefined)
     const { data, error } = await supabase.rpc('register_team', {
