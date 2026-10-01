@@ -37,7 +37,7 @@ export default function Home() {
             {e.registration_open ? (
               <>
                 <p className={free > 0 ? 'spots' : 'spots spots-full'}>
-                  {spotsText(free, e.capacity_teams)}
+                  {spotsText(free, e.capacity_teams, e.taken)}
                 </p>
                 <div className="cta-row">
                   <Link className="button" to={`/registracia/${e.slug}`}>

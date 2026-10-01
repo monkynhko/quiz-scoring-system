@@ -17,10 +17,12 @@ export const formatIban = (iban: string) => iban.replace(/\s+/g, '').replace(/(.
 export const pluralTeams = (n: number) => (n === 1 ? 'tím' : n >= 2 && n <= 4 ? 'tímy' : 'tímov')
 
 // Nechceme ukazovať „35 z 35 voľných“ – pôsobí to, akoby nebol záujem
-export function spotsText(free: number, capacity: number) {
+export function spotsText(free: number, capacity: number, taken: number) {
   if (free <= 0) return 'Kapacita je naplnená – môžete sa prihlásiť na čakaciu listinu.'
   if (free === 1) return 'Posledné voľné miesto.'
   if (free <= 4) return `Posledné ${free} voľné miesta.`
   if (free <= 10) return `Posledných ${free} voľných miest.`
+  // sociálny dôkaz až od 10 tímov – pri malom počte radšej neutrálne
+  if (taken >= 10) return `Prihlásených je už ${taken} tímov`
   return `Registrácia je otvorená · kapacita ${capacity} tímov`
 }
