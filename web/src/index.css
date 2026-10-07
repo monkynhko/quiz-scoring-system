@@ -299,3 +299,15 @@ table.regs { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .projector.big { font-size: clamp(16px, 1.9vw, 34px); }
 .projector.big h1 { font-size: 1.6em; }
 .projector.big .board td { padding: 0.35em 0.4em; }
+
+/* ---------- Neónový žeriav ---------- */
+.neon-crane { display: block; margin: 0 auto 8px; overflow: visible; }
+.nc-pink { stroke: #ff5fdc; filter: drop-shadow(0 0 2px #fa14c3) drop-shadow(0 0 6px rgba(250, 20, 195, 0.7)); }
+.nc-yellow { stroke: #ffd23f; filter: drop-shadow(0 0 2px #ffd23f) drop-shadow(0 0 6px rgba(255, 210, 63, 0.6)); }
+.neon-crane.swing .nc-load { transform-origin: 150px 46px; animation: nc-swing 3.2s ease-in-out infinite; }
+.nc-blink { animation: nc-blink 1.6s steps(1) infinite; }
+@keyframes nc-swing { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+@keyframes nc-blink { 0%, 60% { opacity: 1; } 61%, 100% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .neon-crane .nc-load, .nc-blink { animation: none; } }
+.button-icon { display: inline-flex; align-items: center; gap: 8px; }
+.button-icon .neon-crane { margin: 0; }

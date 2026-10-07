@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase, type PublicEvent } from '../lib/supabase'
 import { dateLong, spotsText, time } from '../lib/format'
 import { Spinner } from '../components'
+import { NeonCrane } from '../NeonCrane'
 
 export default function Home() {
   const [events, setEvents] = useState<PublicEvent[]>()
@@ -43,7 +44,7 @@ export default function Home() {
                   <Link className="button" to={`/registracia/${e.slug}`}>
                     {free > 0 ? 'Registrovať tím' : 'Na čakaciu listinu'}
                   </Link>
-                  <Link className="button button-ghost" to="/vstupenky">Kúpiť vstupenky</Link>
+                  <Link className="button button-ghost button-icon" to="/vstupenky"><NeonCrane size={26} swing={false} /> Kúpiť vstupenky</Link>
                 </div>
               </>
             ) : (
