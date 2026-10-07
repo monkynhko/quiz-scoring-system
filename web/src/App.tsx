@@ -1,4 +1,13 @@
-import { lazy, Suspense } from 'react'
+import { lazy as reactLazy, Suspense, type ComponentType } from 'react'
+
+// Po novom nasadení môže otvorená stránka chcieť starý súbor časti webu, ktorý už neexistuje.
+// Vtedy stránku raz obnovíme (načíta sa nová verzia) namiesto prázdnej obrazovky.
+function lazy<T extends ComponentType<any>>(load: () => Promise<{ default: T }>) {  // eslint-disable-line @typescript-eslint/no-explicit-any
+  return reactLazy(() => load().catch((e) => {
+    if (!sessionStorage.getItem('chunk-reload')) { sessionStorage.setItem('chunk-reload', '1'); location.reload() }
+    throw e
+  }).then((m) => { sessionStorage.removeItem('chunk-reload'); return m }))
+}
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { Layout } from './components'
 import Home from './pages/Home'
