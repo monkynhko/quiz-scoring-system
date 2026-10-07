@@ -75,7 +75,10 @@ async def team_flow(browser, args, team: str, photo: pathlib.Path, role: str, de
                 await page.context.set_offline(True)
                 await asyncio.sleep(args.offline_seconds)
                 await page.context.set_offline(False)
-                await throttle(page, args.kbps_down, args.kbps_up, args.latency)
+                # ten istý CDP session, inak by jeho „offline“ ostalo platiť
+                await cdp.send('Network.emulateNetworkConditions', {
+                    'offline': False, 'latency': args.latency,
+                    'downloadThroughput': args.kbps_down * 1024 / 8, 'uploadThroughput': args.kbps_up * 1024 / 8})
             await sent
             rec.update(ok=True, submit_s=round(time.time() - t_click, 1), total_s=round(time.time() - t0, 1))
             if role == 'resubmit':

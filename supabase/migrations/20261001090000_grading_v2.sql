@@ -161,7 +161,7 @@ begin
 end $$;
 
 -- 8. Opravovanie (admin) ------------------------------------------------------------
--- ďalšia pochybná odpoveď pre tohto opravovateľa (zámok na 90 s, aby ju nedostali dvaja)
+-- ďalšia pochybná odpoveď pre tohto opravovateľa (zámok na 3 min, aby ju nedostali dvaja)
 create or replace function claim_next_review(p_round_id uuid)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
@@ -176,7 +176,7 @@ begin
   from ai_evaluations ev join answer_submissions s on s.id = ev.submission_id
   where s.round_id = p_round_id and s.status = 'pending' and s.ai_status = 'completed'
     and ev.needs_review and ev.final_points is null
-    and (ev.claimed_by is null or ev.claimed_at < now() - interval '90 seconds')
+    and (ev.claimed_by is null or ev.claimed_at < now() - interval '3 minutes')
   order by s.submitted_at, ev.question_number
   limit 1
   for update of ev skip locked;
