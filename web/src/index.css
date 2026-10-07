@@ -329,3 +329,9 @@ table.regs { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
   93% { filter: brightness(1.15); }
 }
 @media (prefers-reduced-motion: reduce) { .logo img, .nc-digits em { animation: none; } }
+
+/* ---------- Príspevok na sociálne siete ---------- */
+.modal.social-modal { width: min(980px, 100%); }
+.social-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 16px; align-items: start; }
+.social-canvas { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); }
+@media (max-width: 760px) { .social-body { grid-template-columns: 1fr; } }

@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { dateLong, dateTimeShort, eur, time } from '../lib/format'
 import { Spinner } from '../components'
 import { AdminGate } from '../AdminGate'
+import { SocialPostModal } from '../SocialPostModal'
 
 type EventRow = {
   id: string; slug: string; title: string; starts_at: string; venue: string
@@ -66,6 +67,7 @@ function EventSettings({ event, onSaved, onDeleted }: { event: EventRow; onSaved
   const [venue, setVenue] = useState(event.venue)
   const [isPublic, setIsPublic] = useState(event.is_public)
   const [shopOpen, setShopOpen] = useState(event.shop_open)
+  const [social, setSocial] = useState(false)
   const [capacity, setCapacity] = useState(event.capacity_teams)
   const [price, setPrice] = useState(event.price_per_person_cents / 100)
   const [doorPrice, setDoorPrice] = useState(event.door_price_per_person_cents / 100)
@@ -127,11 +129,15 @@ function EventSettings({ event, onSaved, onDeleted }: { event: EventRow; onSaved
           disabled={busy}
           onClick={() => {
             const msg = event.registration_open ? 'Zatvoriť registráciu? Nové tímy sa nebudú môcť prihlásiť.' : 'Otvoriť registráciu pre verejnosť?'
-            if (confirm(msg)) update({ registration_open: !event.registration_open })
+            if (!confirm(msg)) return
+            const opening = !event.registration_open
+            update({ registration_open: opening })
+            if (opening && event.is_public) setSocial(true)   // po otvorení ponúkni príspevok na FB/IG
           }}
         >
           {event.registration_open ? '🔒 Zatvoriť registráciu' : '🔓 Otvoriť registráciu'}
         </button>
+        <button className="button button-ghost" onClick={() => setSocial(true)}>📣 Príspevok na FB/IG</button>
       </div>
       <p className={event.registration_open ? 'success' : 'muted'}>
         Registrácia je {event.registration_open ? 'OTVORENÁ' : 'zatvorená'}.
@@ -164,6 +170,7 @@ function EventSettings({ event, onSaved, onDeleted }: { event: EventRow; onSaved
           Zmazať sa dá iba kvíz bez registrácií. Kvíz s registráciami skryjete odškrtnutím „Zobraziť na webe“.
         </p>
       </details>
+      {social && <SocialPostModal event={event} onClose={() => setSocial(false)} />}
     </article>
   )
 }
