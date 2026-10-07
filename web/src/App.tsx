@@ -16,7 +16,6 @@ const Grading = lazy(() => import('./pages/Grading'))
 const Setup = lazy(() => import('./pages/Setup'))
 const Submit = lazy(() => import('./pages/Submit'))
 const Projector = lazy(() => import('./pages/Projector'))
-const Teams = lazy(() => import('./pages/Teams'))
 
 export default function App() {
   return (
@@ -49,8 +48,6 @@ function Site() {
           <Route path="/priprava" element={<Setup />} />
           <Route path="/odovzdat" element={<Submit />} />
           <Route path="/live" element={<Projector big={false} />} />
-          <Route path="/timy" element={<Teams />} />
-          <Route path="/timy/:slug" element={<Teams />} />
           <Route path="*" element={<p className="card center">Stránka neexistuje.</p>} />
         </Routes>
         </Suspense>
