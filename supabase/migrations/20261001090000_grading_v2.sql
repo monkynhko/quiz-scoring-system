@@ -232,6 +232,8 @@ begin
   if p_round_id is null or p_minutes <= 0 then
     update quizzes set submit_open = false where id = p_quiz_id;
   else
+    -- naraz smie byť otvorené iba jedno odovzdávanie (inak by tímy odovzdávali do iného kvízu)
+    update quizzes set submit_open = false where submit_open and id <> p_quiz_id;
     update quizzes set submit_open = true, submit_round_id = p_round_id,
                        submit_closes_at = now() + make_interval(mins => p_minutes)
     where id = p_quiz_id;

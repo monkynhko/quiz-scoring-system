@@ -211,10 +211,12 @@ function Registrations({ event }: { event: EventRow }) {
   }, [regs])
 
   const cancelledCount = (regs ?? []).filter((r) => r.status === 'cancelled').length
+  // vyhľadávanie bez ohľadu na diakritiku a veľké písmená („fazule“ nájde „Fazuľe“)
+  const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
   const shown = (regs ?? []).filter((r) => {
     if (r.status === 'cancelled' && !showCancelled) return false
-    const q = filter.trim().toLowerCase()
-    return !q || r.team_name.toLowerCase().includes(q) || r.email.includes(q) || r.variable_symbol.includes(q)
+    const q = norm(filter.trim())
+    return !q || norm(r.team_name).includes(q) || norm(r.email).includes(q) || r.variable_symbol.includes(q)
   })
 
   async function act(r: Reg, fn: () => PromiseLike<{ error: { message: string } | null }>) {

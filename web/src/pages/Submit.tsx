@@ -112,6 +112,7 @@ export default function Submit() {
 
   return (
     <article className="card submit-card">
+      <p className="muted small" style={{ margin: 0 }}>{/^\d/.test(win.quiz_title) ? `Kvíz ${win.quiz_title}` : win.quiz_title}</p>
       <h1>{win.round_name}. kolo</h1>
       <p className="countdown">Do zatvorenia odovzdávania zostáva <strong>{Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}</strong></p>
 

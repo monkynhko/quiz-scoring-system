@@ -64,7 +64,8 @@ Komunikácia s používateľom (Peter, hlavný admin) po slovensky.
 - Predaj vstupeniek čaká na firemný bankový účet (prepínač `events.shop_open`, IBAN v nastaveniach eventu).
 - TODO (session kvíz): hárky na záťažový test (`loadtest/sheets/real/r{kolo}_{nn}.jpg` + správne odpovede → test 40 tímov × 2 kolá,
   ~0,50 € po súhlase) · nové QR kódy na stoly (staré vedú na nefunkčnú starú stránku na odovzdávanie) · skúška nanečisto
-  `/opravovanie` · príprava kvízu 20. 10. v `/priprava` (sezóna „2026 Sep – Dec“) · nasadiť commit s poistkou na obnovenie stránky.
+  `/opravovanie` · príprava kvízu 20. 10. v `/priprava` (sezóna „2026 Sep – Dec“) · nasadiť commit s poistkou na obnovenie stránky ·
+  **vstup (`/vstup`) treba ešte prejsť s Petrom („so vstupom sa musíme celkovo ešte pohrať“) – pripomenúť**.
 
 ## Pravidlá pre session „sociálne siete“
 - Pracuje iba vo vetve `socialsKvizFactory` (priečinok `~/projects/quiz-scoring-system-socials`). Nenasadzuje web, nemení `v2`.
