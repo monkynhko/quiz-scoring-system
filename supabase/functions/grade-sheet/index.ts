@@ -42,6 +42,7 @@ Deno.serve(async (req) => {
   if (dlErr || !file) return fail('Fotka sa nedá stiahnuť: ' + (dlErr?.message ?? ''))
   const image = encodeBase64(new Uint8Array(await file.arrayBuffer()))
 
+  const usage = { model: MODEL, calls: 0, input: 0, output: 0 }  // tokeny (výstup vrátane „thinking“)
   const gemini = async (parts: unknown[], schema: unknown, thinking: number) => {
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
       method: 'POST',
@@ -54,6 +55,10 @@ Deno.serve(async (req) => {
     })
     if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`)
     const out = await res.json()
+    const u = out.usageMetadata ?? {}
+    usage.calls += 1
+    usage.input += u.promptTokenCount ?? 0
+    usage.output += (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0)
     return JSON.parse(out.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('') ?? '{}')
   }
   const keyText = key.map((k) => `${k.n}. [${k.topic}] ${k.correct}${k.alternatives.length ? ` (uznať aj: ${k.alternatives.join(', ')})` : ''}${k.note ? ` – POKYN: ${k.note}` : ''}`).join('\n')
@@ -144,7 +149,7 @@ Vráť presne 10 položiek pre otázky 1 až 10.` },
 
   const total = rows.reduce((s, r) => s + r.points, 0)
   await db.from('answer_submissions').update({
-    ai_status: 'completed', ai_processed_at: new Date().toISOString(), ai_score: Math.floor(total), ai_max_score: rows.length, ai_error: null,
+    ai_status: 'completed', ai_processed_at: new Date().toISOString(), ai_score: Math.floor(total), ai_max_score: rows.length, ai_error: null, ai_usage: usage,
   }).eq('id', submission_id)
   await db.rpc('recompute_team_round', { p_team_id: sub.team_id, p_round_id: sub.round_id })
 
