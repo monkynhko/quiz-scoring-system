@@ -1,0 +1,20 @@
+{
+  "_poznamka": "Správne odpovede testového kvízu. Prepíš podľa svojich hárkov (5 kôl × 10 otázok, otázky 1–5 = téma 1, 6–10 = téma 2). note = pokyn pre AI (nepovinné).",
+  "rounds": [
+    {"topics": ["Geografia", "História"], "answers": [
+      {"correct": "Bratislava"}, {"correct": "Dunaj"}, {"correct": "Tichý oceán", "alternatives": ["Pacifik"]}, {"correct": "Mount Everest"}, {"correct": "Kanada"},
+      {"correct": "1993"}, {"correct": "Napoleon"}, {"correct": "Rímska ríša"}, {"correct": "Štefánik"}, {"correct": "1989"}]},
+    {"topics": ["Hudba", "Šport"], "answers": [
+      {"correct": "Queen – Bohemian Rhapsody", "note": "interpret + pieseň, za každé ½ bodu"}, {"correct": "Elán"}, {"correct": "Beatles"}, {"correct": "Madonna"}, {"correct": "ABBA"},
+      {"correct": "Tenis"}, {"correct": "11"}, {"correct": "Hokej"}, {"correct": "Peter Sagan"}, {"correct": "Plávanie"}]},
+    {"topics": ["Veda a Technika", "Filmy a Seriály"], "answers": [
+      {"correct": "H2O"}, {"correct": "Newton"}, {"correct": "Mars"}, {"correct": "100"}, {"correct": "Kyslík"},
+      {"correct": "Titanic"}, {"correct": "Pelíšky"}, {"correct": "Friends", "alternatives": ["Priatelia"]}, {"correct": "Shrek"}, {"correct": "Matrix"}]},
+    {"topics": ["Fauna a Flora", "Gastronómia"], "answers": [
+      {"correct": "Gepard"}, {"correct": "Veľryba"}, {"correct": "Dub"}, {"correct": "Áno"}, {"correct": "Nie"},
+      {"correct": "Bryndza"}, {"correct": "Taliansko"}, {"correct": "Pizza"}, {"correct": "Áno"}, {"correct": "Sushi"}]},
+    {"topics": ["Všeobecná vedomosť", "Aktuálne udalosti"], "answers": [
+      {"correct": "7"}, {"correct": "Zelená"}, {"correct": "Euro"}, {"correct": "Áno"}, {"correct": "Nie"},
+      {"correct": "Nie"}, {"correct": "Áno"}, {"correct": "Paríž"}, {"correct": "2026"}, {"correct": "5 km", "alternatives": ["5km"]}]}
+  ]
+}
