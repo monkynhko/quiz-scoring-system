@@ -4,6 +4,7 @@ import { supabase, type PublicEvent } from '../lib/supabase'
 import { dateLong, spotsText, time } from '../lib/format'
 import { Spinner } from '../components'
 import { NeonCrane } from '../NeonCrane'
+import { NeonCountdown } from '../NeonCountdown'
 
 export default function Home() {
   const [events, setEvents] = useState<PublicEvent[]>()
@@ -35,6 +36,7 @@ export default function Home() {
             <p className="event-meta">
               <strong>{dateLong(e.starts_at)}</strong> o {time(e.starts_at)} · {e.venue}
             </p>
+            <NeonCountdown startsAt={e.starts_at} />
             {e.registration_open ? (
               <>
                 <p className={free > 0 ? 'spots' : 'spots spots-full'}>

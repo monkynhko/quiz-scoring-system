@@ -311,3 +311,21 @@ table.regs { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 @media (prefers-reduced-motion: reduce) { .neon-crane .nc-load, .nc-blink { animation: none; } }
 .button-icon { display: inline-flex; align-items: center; gap: 8px; }
 .button-icon .neon-crane { margin: 0; }
+
+/* ---------- Neónový odpočet ---------- */
+.neon-countdown { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 4px 0 14px; }
+.nc-label { color: var(--muted); font-size: 0.9rem; }
+.nc-digits { display: inline-flex; align-items: baseline; gap: 4px; font-variant-numeric: tabular-nums; }
+.nc-digits b { font-size: 1.7rem; font-weight: 800; color: #fff6cf; text-shadow: 0 0 4px #ffd23f, 0 0 12px rgba(255, 210, 63, 0.7), 0 0 24px rgba(255, 210, 63, 0.35); }
+.nc-digits i { font-style: normal; color: var(--yellow); font-size: 0.85rem; margin-right: 2px; opacity: 0.85; }
+.nc-digits em { font-style: normal; color: var(--pink-soft); font-weight: 800; font-size: 1.3rem; margin: 0 4px; text-shadow: 0 0 8px var(--pink-glow); animation: nc-colon 1.2s steps(1) infinite; }
+@keyframes nc-colon { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0.25; } }
+
+/* logo občas zabliká ako skutočný neón */
+.logo img { animation: neon-flicker 9s linear infinite; }
+@keyframes neon-flicker {
+  0%, 91%, 93.5%, 95.5%, 100% { filter: brightness(1); }
+  92%, 94.5% { filter: brightness(0.55) saturate(0.8); }
+  93% { filter: brightness(1.15); }
+}
+@media (prefers-reduced-motion: reduce) { .logo img, .nc-digits em { animation: none; } }
