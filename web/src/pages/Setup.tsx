@@ -7,7 +7,7 @@ import { AdminGate } from '../AdminGate'
 // Príprava kvízu: prepojenie s eventom (tímy z registrácií), sezóna, kolá, témy a správne odpovede.
 // Každé pole sa ukladá samostatne hneď po úprave – žiadne veľké „Uložiť“.
 
-type EventRow = { id: string; title: string; starts_at: string; quiz_id: string | null }
+type EventRow = { id: string; title: string; starts_at: string; quiz_id: string | null; is_public: boolean }
 type Season = { id: string; name: string; is_active: boolean }
 type Category = { id: string; name: string }
 type Answer = { id?: string; question_number: number; correct_answer: string; accept_alternatives: string[] | null; ai_note: string | null }
@@ -22,7 +22,7 @@ function SetupScreen() {
   const [events, setEvents] = useState<EventRow[]>()
   const [eventId, setEventId] = useState<string>()
   const load = useCallback(async () => {
-    const { data } = await supabase.from('events').select('id, title, starts_at, quiz_id').order('starts_at', { ascending: false })
+    const { data } = await supabase.from('events').select('id, title, starts_at, quiz_id, is_public').order('starts_at', { ascending: false })
     setEvents(data as EventRow[])
     setEventId((cur) => cur ?? (data as EventRow[] | null)?.find((e) => new Date(e.starts_at).getTime() > Date.now() - 12 * 3600e3)?.id ?? data?.[0]?.id)
   }, [])
@@ -49,7 +49,12 @@ function CreateQuiz({ event, onCreated }: { event: EventRow; onCreated: () => vo
     const d = new Date(event.starts_at)
     const title = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`
     const { data: season } = await supabase.from('seasons').select('id').eq('is_active', true).maybeSingle()
-    const { data: quiz, error } = await supabase.from('quizzes').insert({ title, season_id: season?.id ?? null, event_id: event.id }).select('id').single()
+    // kvíz k neverejnému (testovaciemu) eventu skryjeme: bez sezóny a s dátumom 2000 → nie je vo výsledkoch ani na /live
+    const hidden = !event.is_public
+    const { data: quiz, error } = await supabase.from('quizzes').insert({
+      title: hidden ? `TEST ${title}` : title, season_id: hidden ? null : season?.id ?? null, event_id: event.id,
+      ...(hidden ? { created_at: '2000-01-01T00:00:00Z' } : {}),
+    }).select('id').single()
     if (error || !quiz) { alert('Chyba: ' + error?.message); setBusy(false); return }
     for (let i = 0; i < 5; i++) {
       const { data: r } = await supabase.from('rounds').insert({ quiz_id: quiz.id, name: String(i + 1), round_order: i, published_at: null }).select('id').single()
