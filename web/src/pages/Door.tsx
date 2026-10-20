@@ -13,7 +13,7 @@ type Team = {
   id: string; team_name: string; team_size: number; status: string
   payment_status: string; amount_cents: number; paid_cents: number; tickets: Ticket[]
 }
-type QueueItem = { kind: 'checkin'; code: string; at: string } | { kind: 'cash' | 'transfer'; registration_id: string; at: string } | { kind: 'person'; registration_id: string; count: number; at: string }
+type QueueItem = { kind: 'checkin'; code: string; at: string } | { kind: 'cash' | 'transfer'; registration_id: string; at: string } | { kind: 'person'; registration_id: string; count: number; at: string } | { kind: 'undo'; registration_id: string; at: string }
 type EventLite = { id: string; title: string; starts_at: string; slug: string; price_per_person_cents: number; door_price_per_person_cents: number }
 type ScanResult =
   | { type: 'ok'; team: Team; seat: number }
@@ -21,6 +21,16 @@ type ScanResult =
   | { type: 'unpaid'; team: Team; seat: number; code: string }
   | { type: 'cancelled'; team: Team }
   | { type: 'unknown'; code: string }
+
+// „−1 osoba“ lokálne: posledný vstup von a cena za osobu späť
+function undoLocal(t: Team, price: number): Team {
+  const last = [...t.tickets].filter((x) => x.checked_in_at).sort((a, b) => (b.checked_in_at! > a.checked_in_at! ? 1 : -1) || b.seat_no - a.seat_no)[0]
+  const paid = Math.max(t.paid_cents - price, 0)
+  return {
+    ...t, paid_cents: paid, payment_status: paid > 0 && paid >= t.amount_cents ? 'paid' : 'unpaid',
+    tickets: last ? t.tickets.map((x) => (x.code === last.code ? { ...x, checked_in_at: null } : x)) : t.tickets,
+  }
+}
 
 const load = <T,>(key: string, fallback: T): T => {
   try { const v = localStorage.getItem(key); return v ? (JSON.parse(v) as T) : fallback } catch { return fallback }
@@ -74,6 +84,7 @@ function DoorScreen({ event }: { event: EventLite }) {
     let team = t
     for (const item of q) {
       if ((item.kind === 'cash' || item.kind === 'transfer') && item.registration_id === t.id) team = { ...team, payment_status: 'paid', paid_cents: team.amount_cents }
+      if (item.kind === 'undo' && item.registration_id === t.id) team = undoLocal(team, event.door_price_per_person_cents)
       if (item.kind === 'person' && item.registration_id === t.id) {
         const paidNow = team.paid_cents + item.count * event.door_price_per_person_cents
         team = { ...team, paid_cents: paidNow, payment_status: paidNow >= team.amount_cents ? 'paid' : team.payment_status }
@@ -110,6 +121,8 @@ function DoorScreen({ event }: { event: EventLite }) {
           ? await supabase.rpc('check_in_ticket', { p_code: item.code, p_at: item.at })
           : item.kind === 'person'
             ? await supabase.rpc('door_pay_person', { p_registration_id: item.registration_id, p_count: item.count })
+            : item.kind === 'undo'
+            ? await supabase.rpc('door_undo_person', { p_registration_id: item.registration_id })
             : await supabase.rpc('door_mark_paid', { p_registration_id: item.registration_id, p_method: item.kind })
         if (error) {
           // sieťová chyba → skúsime neskôr; iná chyba → položku zahodíme, aby neblokovala frontu
@@ -174,6 +187,11 @@ function DoorScreen({ event }: { event: EventLite }) {
     if (next) checkIn([next.code])
   }
 
+  const undoPerson = (team: Team) => {
+    updateTeams((list) => list.map((t) => (t.id === team.id ? undoLocal(t, event.door_price_per_person_cents) : t)))
+    enqueue([{ kind: 'undo', registration_id: team.id, at: new Date().toISOString() }])
+  }
+
   const onScan = useCallback((raw: string) => {
     const code = raw.trim()
     const hit = byCode.get(code)
@@ -216,7 +234,7 @@ function DoorScreen({ event }: { event: EventLite }) {
       </nav>
 
       {tab === 'scan' && <Scanner onScan={onScan} paused={!!result} />}
-      {tab === 'teams' && <TeamList teams={teams} doorPrice={event.door_price_per_person_cents} onCheckIn={checkIn} onPaid={markPaid} onPerson={payPerson} />}
+      {tab === 'teams' && <TeamList teams={teams} doorPrice={event.door_price_per_person_cents} onPerson={payPerson} onUndo={undoPerson} />}
       {tab === 'add' && <AddTeam eventId={event.id} price={event.door_price_per_person_cents} online={online} onAdded={() => { refresh(); setTab('teams') }} />}
 
       {result && (
@@ -308,41 +326,34 @@ function ResultOverlay({ result, onClose, onPaidAndIn, doorPrice }: {
   )
 }
 
-export function TeamList({ teams, doorPrice, onCheckIn, onPaid, onPerson }: { teams: Team[]; doorPrice: number; onCheckIn: (codes: string[]) => void; onPaid: (t: Team, method: 'cash' | 'transfer') => void; onPerson: (t: Team) => void }) {
+export function TeamList({ teams, doorPrice, onPerson, onUndo }: { teams: Team[]; doorPrice: number; onPerson: (t: Team) => void; onUndo: (t: Team) => void }) {
+  // Ťuknutie na tím = jeden človek zaplatil (7 €) a vošiel. „−1“ = oprava posledného ťuknutia.
   const [q, setQ] = useState('')
+  const [flash, setFlash] = useState<string>()
   const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   const shown = teams
     .filter((t) => t.status === 'confirmed' && (!q || norm(t.team_name).includes(norm(q))))
-    .sort((a, b) => a.team_name.localeCompare(b.team_name, 'sk'))
+    .sort((a, b) => a.team_name.localeCompare(b.team_name, 'sk', { numeric: true }))
+  const tap = (t: Team, inside: number) => {
+    if (inside >= t.team_size) { navigator.vibrate?.([60, 60, 60]); return }
+    onPerson(t); setFlash(t.id); navigator.vibrate?.(40)
+    setTimeout(() => setFlash((f) => (f === t.id ? undefined : f)), 500)
+  }
   return (
     <div className="door-teams">
-      <input className="door-search" placeholder="Hľadať tím…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+      <input className="door-search" placeholder="Hľadať tím…" value={q} onChange={(e) => setQ(e.target.value)} />
+      <p className="hint">Ťuknite na tím za každého človeka, ktorý zaplatil {eur(doorPrice)} a vošiel. „−1“ vráti posledné ťuknutie.</p>
       {shown.map((t) => {
-        const unused = t.tickets.filter((x) => !x.checked_in_at).sort((a, b) => a.seat_no - b.seat_no)
-        const inside = t.team_size - unused.length
-        const paid = t.payment_status === 'paid'
-        const full = t.team_size * doorPrice
-        const rest = Math.max(full - t.paid_cents, 0)
+        const inside = t.tickets.filter((x) => x.checked_in_at).length
+        const full = inside >= t.team_size
         return (
-          <div key={t.id} className={`door-team ${inside === t.team_size ? 'all-in' : ''}`}>
-            <div className="door-team-head">
-              <strong>{t.team_name}</strong>
-              <span className={paid ? 'badge badge-paid' : 'badge badge-unpaid'}>{paid ? 'zaplatené' : t.paid_cents > 0 ? `zaplatené ${eur(t.paid_cents)} z ${eur(full)}` : 'nezaplatené'}</span>
-            </div>
-            <div className="door-team-row">
-              <span>vnútri <strong>{inside}/{t.team_size}</strong></span>
-              <span className="door-team-actions">
-                {!paid && <>
-                  <button className="button button-small" onClick={() => onPerson(t)}>+1 osoba ({eur(doorPrice)})</button>
-                  {unused.length > 1 && <button className="button button-small button-ghost" onClick={() => confirm(`Tím „${t.team_name}“ platí zvyšok ${eur(rest)} a vchádzajú všetci zvyšní (${unused.length})?`) && (onPaid(t, 'cash'), onCheckIn(unused.map((x) => x.code)))}>Zvyšok tímu ({eur(rest)})</button>}
-                  <button className="button button-small button-ghost" onClick={() => confirm(`Tím „${t.team_name}“ ukázal platbu prevodom ${eur(t.amount_cents - t.paid_cents)}?`) && onPaid(t, 'transfer')}>Prevod</button>
-                </>}
-                {paid && unused.length > 0 && <>
-                  <button className="button button-small button-ghost" onClick={() => onCheckIn([unused[0].code])}>Pustiť 1</button>
-                  {unused.length > 1 && <button className="button button-small" onClick={() => onCheckIn(unused.map((x) => x.code))}>Pustiť {unused.length}</button>}
-                </>}
-              </span>
-            </div>
+          <div key={t.id} className={`door-tap ${full ? 'full' : ''} ${flash === t.id ? 'flash' : ''}`}>
+            <button className="door-tap-main" onClick={() => tap(t, inside)}>
+              <span className="door-tap-name">{t.team_name}</span>
+              <span className="door-tap-count"><strong>{inside}</strong>/{t.team_size}</span>
+              <span className="door-tap-paid">{eur(t.paid_cents)}</span>
+            </button>
+            <button className="door-tap-undo" disabled={inside === 0 && t.paid_cents === 0} onClick={() => onUndo(t)} aria-label={`Odobrať jedného z tímu ${t.team_name}`}>−1</button>
           </div>
         )
       })}

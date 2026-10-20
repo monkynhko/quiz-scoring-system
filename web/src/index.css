@@ -347,3 +347,17 @@ table.regs { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .ms-cell.st-error input { border-color: var(--red); background: rgba(255, 90, 110, 0.12); }
 .ms-tag { display: block; font-size: 0.7rem; color: var(--yellow); margin-top: 2px; }
 .ms-total { font-weight: 800; font-size: 1.15rem; color: var(--yellow); text-align: center; }
+
+/* ---------- Vstup: ťuknutie na tím ---------- */
+.door-tap { display: flex; gap: 8px; margin-bottom: 8px; }
+.door-tap-main { flex: 1; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px; text-align: left;
+  font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 14px; cursor: pointer; }
+.door-tap-main:active { transform: scale(0.99); }
+.door-tap-name { font-weight: 800; font-size: 1.05rem; }
+.door-tap-count { font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+.door-tap-count strong { font-size: 1.5rem; color: var(--yellow); }
+.door-tap-paid { color: var(--green); font-weight: 700; min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
+.door-tap-undo { font: inherit; font-weight: 800; font-size: 1.1rem; width: 58px; border-radius: 14px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; }
+.door-tap-undo:disabled { opacity: 0.3; }
+.door-tap.full .door-tap-main { border-color: rgba(63, 232, 154, 0.6); opacity: 0.7; }
+.door-tap.flash .door-tap-main { border-color: var(--green); box-shadow: 0 0 18px rgba(63, 232, 154, 0.55); }

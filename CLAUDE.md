@@ -41,7 +41,7 @@ Komunikácia s používateľom (Peter, hlavný admin) po slovensky.
 ## Dohodnuté pravidlá (dôležité)
 1. **Ostré registrácie sú posvätné.** Pred každou zmenou databázy, ktorá sa ich môže dotknúť: záloha (`~/projects/kvizfactory-backups/`)
    a kontrola počtu + kontrolného súčtu pred aj po (`loadtest/sb.py` → `live_registrations()`).
-2. **Nič neodchádza von bez Petrovho výslovného „áno“** – e-maily, príspevky na FB/IG, nasadenie webu, push na GitHub, mazanie dát.
+2. **Nič neodchádza von bez Petrovho výslovného „áno“** – e-maily, príspevky na FB/IG, mazanie dát. **Nasadenie webu a push do `v2`: od 20. 10. 2026 hneď po každej hotovej zmene (Peter: „všetko čo spravíš hneď nasaď“).**
    Najprv ukázať presný obsah. (Aj podľa ~/CLAUDE.md.)
 3. **Pred každým testom, ktorý stojí peniaze** (Gemini, platené API): odhad ceny a súhlas. Pozor aj na automatické opakovania.
 4. **Počas kvízu sa nenasadzuje.** Najbližší kvíz: utorok 20. 10. 2026, 19:00, Káčečko (35 tímov kapacita).
