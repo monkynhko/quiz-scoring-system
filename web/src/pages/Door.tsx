@@ -74,7 +74,7 @@ function DoorScreen({ event }: { event: EventLite }) {
   const [queue, setQueue] = useState<QueueItem[]>(() => load(queueKey, []))
   const [online, setOnline] = useState(navigator.onLine)
   const [syncedAt, setSyncedAt] = useState<Date>()
-  const [tab, setTab] = useState<'scan' | 'teams' | 'add'>('scan')
+  const [tab, setTab] = useState<'scan' | 'teams' | 'add'>('teams')  // kamera sa zapne až po otvorení záložky Skenovať
   const [result, setResult] = useState<ScanResult>()
   const queueRef = useRef(queue)
   queueRef.current = queue
@@ -228,8 +228,8 @@ function DoorScreen({ event }: { event: EventLite }) {
         <div><strong>{stats.unpaid}</strong><span>nezaplatených</span></div>
       </div>
       <nav className="door-tabs">
-        <button className={tab === 'scan' ? 'active' : ''} onClick={() => setTab('scan')}>📷 Skenovať</button>
         <button className={tab === 'teams' ? 'active' : ''} onClick={() => setTab('teams')}>👥 Tímy</button>
+        <button className={tab === 'scan' ? 'active' : ''} onClick={() => setTab('scan')}>📷 Skenovať</button>
         <button className={tab === 'add' ? 'active' : ''} onClick={() => setTab('add')}>➕ Na mieste</button>
       </nav>
 
