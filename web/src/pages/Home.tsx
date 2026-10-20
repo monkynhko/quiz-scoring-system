@@ -37,7 +37,9 @@ export default function Home() {
               <strong>{dateLong(e.starts_at)}</strong> o {time(e.starts_at)} · {e.venue}
             </p>
             <NeonCountdown startsAt={e.starts_at} />
-            {e.registration_open ? (
+            {new Date(e.starts_at) <= new Date() ? (
+              <p className="spots">Kvíz práve prebieha · <a href="/live">priebežné poradie</a></p>
+            ) : e.registration_open ? (
               <>
                 <p className={free > 0 ? 'spots' : 'spots spots-full'}>
                   {spotsText(free, e.capacity_teams, e.taken)}
@@ -56,7 +58,7 @@ export default function Home() {
         )
       })}
 
-      <p className="center muted small"><a href="/live">Priebežné poradie</a> · <a href="/vysledky/">Výsledky a ligová tabuľka</a></p>
+      <p className="center muted small"><a href="/live">Priebežné poradie</a> · <Link to="/vysledky">Výsledky a ligová tabuľka</Link></p>
     </>
   )
 }

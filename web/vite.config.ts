@@ -3,14 +3,14 @@ import react from '@vitejs/plugin-react'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-// Starý leaderboard (../leaderboard.html) servírujeme na /vysledky/, kým ho neprepíšeme do Reactu.
+// Starý leaderboard (../leaderboard.html) ešte necháme na /vysledky-stare/ – nové výsledky sú v Reacte na /vysledky.
 // config.js sa generuje z rovnakých premenných ako nový web (web/.env.local, resp. prostredie pri builde).
 function legacyLeaderboard(env: Record<string, string>): Plugin {
   return {
     name: 'legacy-leaderboard',
     apply: 'build',
     closeBundle() {
-      const out = resolve(__dirname, 'dist/vysledky')
+      const out = resolve(__dirname, 'dist/vysledky-stare')
       mkdirSync(out, { recursive: true })
       const html = readFileSync(resolve(__dirname, '../leaderboard.html'), 'utf8').replace(
         '<body',
