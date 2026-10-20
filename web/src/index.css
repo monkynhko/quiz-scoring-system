@@ -335,3 +335,15 @@ table.regs { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .social-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 16px; align-items: start; }
 .social-canvas { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); }
 @media (max-width: 760px) { .social-body { grid-template-columns: 1fr; } }
+
+/* ---------- Ručné body ---------- */
+.manual-scores .regs td { vertical-align: middle; }
+.ms-cell { position: relative; min-width: 120px; }
+.ms-cell input { width: 90px; text-align: center; font-size: 1.1rem; font-weight: 700; padding: 8px; }
+.ms-cell input::placeholder { color: #8578b3; font-weight: 500; font-size: 0.9rem; }
+.ms-cell.is-manual input { border-color: var(--yellow); box-shadow: 0 0 8px rgba(255, 210, 63, 0.35); }
+.ms-cell.st-saving input { opacity: 0.6; }
+.ms-cell.st-saved input { border-color: var(--green); }
+.ms-cell.st-error input { border-color: var(--red); background: rgba(255, 90, 110, 0.12); }
+.ms-tag { display: block; font-size: 0.7rem; color: var(--yellow); margin-top: 2px; }
+.ms-total { font-weight: 800; font-size: 1.15rem; color: var(--yellow); text-align: center; }

@@ -74,6 +74,7 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
   const [scores, setScores] = useState<Record<string, number>>({})
   const [reviewing, setReviewing] = useState(false)
   const [sheet, setSheet] = useState<Sub>()
+  const [view, setView] = useState<'ai' | 'manual'>('ai')
 
   const load = useCallback(async () => {
     const [t, s, sc] = await Promise.all([
@@ -123,15 +124,19 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
       </div>
 
       <div className="cta-row grading-actions">
+        <button className={`button ${view === 'ai' ? '' : 'button-ghost'}`} onClick={() => setView('ai')}>📷 Hárky a AI</button>
+        <button className={`button ${view === 'manual' ? '' : 'button-ghost'}`} onClick={() => setView('manual')}>✍️ Ručné body</button>
         <button className="button" disabled={!openReviews} onClick={() => setReviewing(true)}>✅ Kontrolovať ({openReviews})</button>
         <PublishButton round={round} openReviews={openReviews} aiBusy={aiBusy} missing={teams.length - subs.length} onChanged={onRoundChanged} />
       </div>
 
-      {aiFailed.length > 0 && (
+      {view === 'manual' && <ManualScores round={round} teams={teams} onChanged={load} />}
+
+      {view === 'ai' && aiFailed.length > 0 && (
         <p className="alert">AI zlyhala pri {aiFailed.length} hárkoch – skúša to znova automaticky. Posledná chyba: {aiFailed[0].ai_error}</p>
       )}
 
-      <div className="team-grid">
+      {view === 'ai' && <div className="team-grid">
         {teams.map((t) => {
           const s = subByTeam[t.id]
           const pending = s ? evs.filter((e) => e.submission_id === s.id && e.needs_review && e.final_points == null).length : 0
@@ -149,7 +154,7 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
             </button>
           )
         })}
-      </div>
+      </div>}
 
       {reviewing && <ReviewQueue roundId={round.id} onClose={() => { setReviewing(false); load() }} />}
       {sheet && <SheetModal sub={sheet} team={teams.find((t) => t.id === sheet.team_id)!} evs={evs.filter((e) => e.submission_id === sheet.id)} onClose={() => { setSheet(undefined); load() }} />}
@@ -354,5 +359,97 @@ function SheetModal({ sub, team, evs, onClose }: { sub: Sub; team: Team; evs: Ev
         </div>
       </div>
     </div>
+  )
+}
+
+// Ručné body za tému – majú vždy prednosť pred AI. Prázdne pole = platí AI.
+type RT = { id: string; topic_order: number; max_points: number; categories: { name: string } | null }
+const parsePts = (v: string): number | null | 'bad' => {
+  const t = v.trim().replace('½', '.5').replace(',', '.').replace(/\s/g, '')
+  if (t === '') return null
+  const n = Number(t.startsWith('.') ? '0' + t : t)
+  return Number.isFinite(n) && n >= 0 && Number.isInteger(n * 2) ? n : 'bad'
+}
+
+export function ManualScores({ round, teams, onChanged }: { round: Round; teams: Team[]; onChanged: () => void }) {
+  const [topics, setTopics] = useState<RT[]>([])
+  const [current, setCurrent] = useState<Record<string, number>>({})   // `${team}:${topic}` → aktuálne body (ručné alebo AI)
+  const [manual, setManual] = useState<Record<string, number>>({})
+  const [draft, setDraft] = useState<Record<string, string>>({})
+  const [state, setState] = useState<Record<string, '' | 'saving' | 'saved' | 'error'>>({})
+
+  const load = useCallback(async () => {
+    const { data: rts } = await supabase.from('round_topics').select('id, topic_order, max_points, categories(name)').eq('round_id', round.id).order('topic_order')
+    const list = (rts ?? []) as unknown as RT[]
+    setTopics(list)
+    const ids = list.map((x) => x.id)
+    if (!ids.length) return
+    const [ts, ms] = await Promise.all([
+      supabase.from('topic_scores').select('team_id, round_topic_id, score').in('round_topic_id', ids),
+      supabase.from('manual_topic_scores').select('team_id, round_topic_id, score').in('round_topic_id', ids),
+    ])
+    const toMap = (rows: { team_id: string; round_topic_id: string; score: number }[] | null) =>
+      Object.fromEntries((rows ?? []).map((r) => [`${r.team_id}:${r.round_topic_id}`, Number(r.score)]))
+    setCurrent(toMap(ts.data as never)); setManual(toMap(ms.data as never))
+  }, [round.id])
+  useEffect(() => { load() }, [load])
+
+  async function save(teamId: string, rt: RT) {
+    const key = `${teamId}:${rt.id}`
+    if (!(key in draft)) return
+    const val = parsePts(draft[key])
+    if (val === 'bad' || (val !== null && val > rt.max_points)) { setState((s) => ({ ...s, [key]: 'error' })); return }
+    if (val === (manual[key] ?? null)) { setDraft((d) => { const n = { ...d }; delete n[key]; return n }); return }
+    setState((s) => ({ ...s, [key]: 'saving' }))
+    const { error } = await supabase.rpc('set_manual_topic_score', { p_team_id: teamId, p_round_topic_id: rt.id, p_score: val })
+    if (error) { setState((s) => ({ ...s, [key]: 'error' })); alert('Uloženie zlyhalo: ' + error.message); return }
+    setState((s) => ({ ...s, [key]: 'saved' }))
+    setDraft((d) => { const n = { ...d }; delete n[key]; return n })
+    await load(); onChanged()
+  }
+
+  const sorted = [...teams].sort((a, b) => a.name.localeCompare(b.name, 'sk', { numeric: true }))
+  return (
+    <article className="card manual-scores">
+      <p className="hint">
+        Napíšte body za tému (napr. <strong>3</strong>, <strong>3,5</strong> alebo <strong>3½</strong>) a stlačte Enter alebo prejdite ďalej (Tab).
+        <strong> Ručné body majú vždy prednosť pred AI.</strong> Vymazaním poľa sa téma vráti k výsledku AI. Sivé číslo = aktuálny výsledok AI.
+      </p>
+      <div className="table-wrap">
+        <table className="regs">
+          <thead><tr><th>Tím</th>{topics.map((t) => <th key={t.id}>{t.topic_order}. {t.categories?.name ?? 'téma'} <span className="muted small">(max {fmtPts(Number(t.max_points))})</span></th>)}<th>Spolu</th></tr></thead>
+          <tbody>
+            {sorted.map((team) => {
+              const total = topics.reduce((a, t) => a + (current[`${team.id}:${t.id}`] ?? 0), 0)
+              const hasAny = topics.some((t) => `${team.id}:${t.id}` in current)
+              return (
+                <tr key={team.id}>
+                  <td><strong>{team.name}</strong></td>
+                  {topics.map((t) => {
+                    const key = `${team.id}:${t.id}`
+                    const isManual = key in manual
+                    const aiVal = !isManual && key in current ? current[key] : null
+                    return (
+                      <td key={t.id} className={`ms-cell ${isManual ? 'is-manual' : ''} st-${state[key] ?? ''}`}>
+                        <input
+                          inputMode="decimal"
+                          value={draft[key] ?? (isManual ? fmtPts(manual[key]) : '')}
+                          placeholder={aiVal != null ? `AI ${fmtPts(aiVal)}` : '–'}
+                          onChange={(e) => { const v = e.target.value; setDraft((d) => ({ ...d, [key]: v })); setState((s) => ({ ...s, [key]: '' })) }}
+                          onBlur={() => save(team.id, t)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                        />
+                        {isManual && <span className="ms-tag">ručne</span>}
+                      </td>
+                    )
+                  })}
+                  <td className="ms-total">{hasAny ? fmtPts(total) : '–'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </article>
   )
 }
