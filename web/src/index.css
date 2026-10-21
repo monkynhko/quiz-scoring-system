@@ -419,3 +419,5 @@ table.regs { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
   .cat-line .bar { grid-column: 1 / -1; grid-row: 2; }
 }
 .topic-cat input { max-width: 320px; }
+.team-search { position: sticky; top: 0; z-index: 5; display: flex; gap: 10px; align-items: center; padding: 8px 0; background: linear-gradient(var(--bg) 70%, transparent); }
+.team-search input { flex: 1; }

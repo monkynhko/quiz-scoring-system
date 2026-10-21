@@ -75,6 +75,7 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
   const [reviewing, setReviewing] = useState(false)
   const [sheet, setSheet] = useState<Sub>()
   const [view, setView] = useState<'ai' | 'manual'>('ai')
+  const [q, setQ] = useState('')
 
   const load = useCallback(async () => {
     const [t, s, sc] = await Promise.all([
@@ -108,6 +109,8 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
 
   const subByTeam = useMemo(() => Object.fromEntries(subs.map((s) => [s.team_id, s])), [subs])
   const openReviews = evs.filter((e) => e.needs_review && e.final_points == null).length
+  const fold = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const shown = q.trim() ? teams.filter((t) => fold(t.name).includes(fold(q.trim()))) : teams
   const aiDone = subs.filter((s) => s.ai_status === 'completed').length
   const aiBusy = subs.filter((s) => s.ai_status === 'pending' || s.ai_status === 'processing').length
   const aiFailed = subs.filter((s) => s.ai_status === 'failed')
@@ -130,14 +133,20 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
         <PublishButton round={round} openReviews={openReviews} aiBusy={aiBusy} missing={teams.length - subs.length} onChanged={onRoundChanged} />
       </div>
 
-      {view === 'manual' && <ManualScores round={round} teams={teams} onChanged={load} />}
+      <div className="team-search">
+        <input type="search" placeholder="🔍 Hľadať tím…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Hľadať tím" />
+        {q && <button className="link" onClick={() => setQ('')}>zrušiť</button>}
+      </div>
+
+      {view === 'manual' && <ManualScores round={round} teams={shown} onChanged={load} />}
 
       {view === 'ai' && aiFailed.length > 0 && (
         <p className="alert">AI zlyhala pri {aiFailed.length} hárkoch – skúša to znova automaticky. Posledná chyba: {aiFailed[0].ai_error}</p>
       )}
 
       {view === 'ai' && <div className="team-grid">
-        {teams.map((t) => {
+        {shown.length === 0 && <p className="muted">Žiadny tím nezodpovedá „{q}“.</p>}
+        {shown.map((t) => {
           const s = subByTeam[t.id]
           const pending = s ? evs.filter((e) => e.submission_id === s.id && e.needs_review && e.final_points == null).length : 0
           const state = !s ? 'none' : s.ai_status !== 'completed' ? (s.ai_status === 'failed' ? 'failed' : 'ai') : pending ? 'review' : 'done'
