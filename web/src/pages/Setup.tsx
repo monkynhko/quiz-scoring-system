@@ -52,7 +52,7 @@ function CreateQuiz({ event, onCreated }: { event: EventRow; onCreated: () => vo
     // kvíz k neverejnému (testovaciemu) eventu skryjeme: bez sezóny a s dátumom 2000 → nie je vo výsledkoch ani na /live
     const hidden = !event.is_public
     const { data: quiz, error } = await supabase.from('quizzes').insert({
-      title: hidden ? `TEST ${title}` : title, season_id: hidden ? null : season?.id ?? null, event_id: event.id,
+      title, season_id: hidden ? null : season?.id ?? null, event_id: event.id, allow_new_teams: hidden,
       ...(hidden ? { created_at: '2000-01-01T00:00:00Z' } : {}),
     }).select('id').single()
     if (error || !quiz) { alert('Chyba: ' + error?.message); setBusy(false); return }
@@ -76,7 +76,7 @@ function CreateQuiz({ event, onCreated }: { event: EventRow; onCreated: () => vo
 }
 
 function QuizEditor({ quizId, event }: { quizId: string; event: EventRow }) {
-  const [quiz, setQuiz] = useState<{ title: string; season_id: string | null }>()
+  const [quiz, setQuiz] = useState<{ title: string; season_id: string | null; allow_new_teams: boolean; created_at: string }>()
   const [seasons, setSeasons] = useState<Season[]>([])
   const [cats, setCats] = useState<Category[]>([])
   const [rounds, setRounds] = useState<Round[]>()
@@ -84,7 +84,7 @@ function QuizEditor({ quizId, event }: { quizId: string; event: EventRow }) {
 
   const load = useCallback(async () => {
     const [q, s, c, r, t] = await Promise.all([
-      supabase.from('quizzes').select('title, season_id').eq('id', quizId).single(),
+      supabase.from('quizzes').select('title, season_id, allow_new_teams, created_at').eq('id', quizId).single(),
       supabase.from('seasons').select('id, name, is_active').order('start_date'),
       supabase.from('categories').select('id, name').order('name'),
       supabase.from('rounds').select('id, name, round_order, round_topics(id, topic_order, category_id, name, correct_answers(id, question_number, correct_answer, accept_alternatives, ai_note))').eq('quiz_id', quizId).order('round_order'),
@@ -145,10 +145,21 @@ function QuizEditor({ quizId, event }: { quizId: string; event: EventRow }) {
           </label>
           <span className={filled === needed ? 'success' : 'warn'}>Správne odpovede: {filled}/{needed}</span>
         </div>
+        <label className="checkbox-row">
+          <input type="checkbox" checked={quiz.allow_new_teams} onChange={async (e) => {
+            const v = e.target.checked
+            await supabase.from('quizzes').update({ allow_new_teams: v }).eq('id', quizId)
+            setQuiz({ ...quiz, allow_new_teams: v })
+          }} />
+          Tímy si môžu pri odovzdaní hárku napísať vlastný názov (bez registrácie)
+        </label>
+        {quiz.created_at < '2001' && (
+          <p className="muted small">Skrytý kvíz – nie je vo výsledkoch, v lige ani na /live. Projektor: <a href={`/projektor?kviz=${quizId}`} target="_blank" rel="noreferrer">{location.origin}/projektor?kviz={quizId}</a></p>
+        )}
       </article>
 
       <details className="card">
-        <summary>Tímy ({teams.length}) – pridávajú sa automaticky z registrácií</summary>
+        <summary>Tímy ({teams.length}) – pridávajú sa automaticky z registrácií{quiz.allow_new_teams ? ' alebo pri odovzdaní' : ''}</summary>
         <p className="muted small">{teams.map((t) => t.name).join(' · ') || 'Zatiaľ žiadne.'}</p>
         <button className="button button-small button-ghost" onClick={addTeam}>➕ Pridať tím ručne</button>
       </details>

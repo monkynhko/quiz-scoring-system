@@ -5,7 +5,7 @@ import { Spinner } from '../components'
 
 // Odovzdanie fotky odpoveďového hárku. Pri výpadku internetu sa fotka uloží v mobile a odošle sa sama.
 
-type Window = { quiz_id: string; quiz_title: string; round_id: string; round_name: string; closes_at: string; teams: { id: string; name: string }[] }
+type Window = { quiz_id: string; quiz_title: string; round_id: string; round_name: string; closes_at: string; allow_new_teams?: boolean; teams: { id: string; name: string }[] }
 type Pending = { quiz_id: string; round_id: string; team_id: string; team_name: string; round_name: string; photo: string; at: number }
 type Sent = { round_id: string; team_id: string; at: number }
 
@@ -129,8 +129,10 @@ export default function Submit() {
         <select value={teamId} onChange={(e) => { setTeamId(e.target.value); write(TEAM_KEY, e.target.value) }}>
           <option value="">– vyberte tím –</option>
           {win.teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          {win.allow_new_teams && <option value="__new">➕ Náš tím nie je v zozname</option>}
         </select>
       </label>
+      {win.allow_new_teams && teamId === '__new' && <NewTeam quizId={win.quiz_id} onCreated={async (id) => { await poll(); setTeamId(id); write(TEAM_KEY, id) }} />}
 
       {team && (
         <>
@@ -173,6 +175,30 @@ function TeamLink({ token }: { token: string }) {
         <a className="button" href={url}>📄 Naše hárky</a>
         <button className="button button-ghost" onClick={share}>📤 Poslať tímu</button>
       </div>
+    </div>
+  )
+}
+
+// tím bez registrácie si napíše názov sám (iba pri kvízoch, ktoré to povoľujú)
+function NewTeam({ quizId, onCreated }: { quizId: string; onCreated: (id: string) => void }) {
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  async function create() {
+    setBusy(true); setErr('')
+    const { data, error } = await supabase.rpc('create_submit_team', { p_quiz_id: quizId, p_name: name })
+    setBusy(false)
+    if (error) { setErr(/bad_name/.test(error.message) ? 'Názov musí mať 2 až 60 znakov.' : /submit_closed/.test(error.message) ? 'Odovzdávanie je zatvorené.' : 'Nepodarilo sa – skúste znova.'); return }
+    onCreated(data as string)
+  }
+  return (
+    <div className="form new-team">
+      <label>Názov vášho tímu
+        <input value={name} maxLength={60} placeholder="napr. Bystré hlavy" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && name.trim().length >= 2 && create()} />
+      </label>
+      <p className="hint">Rovnaký názov si potom vyberiete aj v ďalších kolách.</p>
+      <button className="button" disabled={busy || name.trim().length < 2} onClick={create}>{busy ? 'Ukladám…' : 'Pridať tím'}</button>
+      {err && <p className="alert">{err}</p>}
     </div>
   )
 }
