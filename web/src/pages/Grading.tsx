@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { time } from '../lib/format'
+import { time, roundLabel, roundOf } from '../lib/format'
 import { Spinner } from '../components'
 import { AdminGate } from '../AdminGate'
 
@@ -8,7 +8,7 @@ import { AdminGate } from '../AdminGate'
 // Každý opravovateľ dostane inú odpoveď (zámok v databáze), súčty počíta databáza.
 
 type Quiz = { id: string; title: string; created_at: string; submit_open: boolean; submit_round_id: string | null; submit_closes_at: string | null }
-type Round = { id: string; name: string; round_order: number; published_at: string | null }
+type Round = { id: string; name: string; round_order: number; published_at: string | null; kind: 'sheet' | 'manual' }
 type Team = { id: string; name: string }
 type Sub = { id: string; team_id: string; status: string; ai_status: string; ai_error: string | null; submitted_at: string; photo_path: string }
 type Ev = { id: string; submission_id: string; question_number: number; ocr_text: string | null; correct_answer: string | null; points: number | null; final_points: number | null; needs_review: boolean; review_reason: string | null; reasoning: string | null; box: number[] | null }
@@ -35,7 +35,7 @@ function GradingScreen() {
 
   const loadRounds = useCallback(async () => {
     if (!quizId) return
-    const { data } = await supabase.from('rounds').select('id, name, round_order, published_at').eq('quiz_id', quizId).order('round_order')
+    const { data } = await supabase.from('rounds').select('id, name, round_order, published_at, kind').eq('quiz_id', quizId).order('round_order')
     setRounds(data as Round[])
     setRoundId((cur) => (data as Round[]).some((r) => r.id === cur) ? cur : (data as Round[])[0]?.id)
   }, [quizId])
@@ -52,13 +52,13 @@ function GradingScreen() {
         </select>
         <span className="cta-row">
           <a className="button button-small button-ghost" href="/priprava">Príprava kvízu</a>
-          <a className="button button-small button-ghost" href="/projektor" target="_blank">Projektor ↗</a>
+          <a className="button button-small button-ghost" href={quiz?.created_at.startsWith('2000') ? `/projektor?kviz=${quiz.id}` : '/projektor'} target="_blank">Projektor ↗</a>
         </span>
       </div>
       <nav className="round-tabs">
         {rounds.map((r) => (
           <button key={r.id} className={r.id === roundId ? 'active' : ''} onClick={() => setRoundId(r.id)}>
-            {r.name}. kolo {r.published_at ? '📢' : ''}
+            {roundLabel(r.name)} {r.kind === 'manual' ? '✍️' : ''}{r.published_at ? '📢' : ''}
           </button>
         ))}
       </nav>
@@ -74,7 +74,7 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
   const [scores, setScores] = useState<Record<string, number>>({})
   const [reviewing, setReviewing] = useState(false)
   const [sheet, setSheet] = useState<Sub>()
-  const [view, setView] = useState<'ai' | 'manual'>('ai')
+  const [view, setView] = useState<'ai' | 'manual'>(round.kind === 'manual' ? 'manual' : 'ai')
   const [q, setQ] = useState('')
   const [regrade, setRegrade] = useState(false)
 
@@ -118,7 +118,7 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
 
   return (
     <>
-      <SubmitWindow quiz={quiz} round={round} onChanged={onQuizChanged} />
+      {round.kind !== 'manual' && <SubmitWindow quiz={quiz} round={round} onChanged={onQuizChanged} />}
 
       <div className="grading-stats">
         <div><strong>{subs.length}</strong>/{teams.length}<span>odovzdaných</span></div>
@@ -193,7 +193,7 @@ function SubmitWindow({ quiz, round, onChanged }: { quiz: Quiz; round: Round; on
     <div className={`submit-window card ${openHere ? 'open' : ''}`}>
       {openHere ? (
         <>
-          <strong>🔓 Odovzdávanie {round.name}. kola je otvorené</strong> – zatvára sa o {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}
+          <strong>🔓 Odovzdávanie {roundOf(round.name)} je otvorené</strong> – zatvára sa o {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}
           <span className="cta-row">
             <button className="button button-small button-ghost" onClick={() => set(round.id, Math.ceil(left / 60) + 2)}>+2 min</button>
             <button className="button button-small button-danger" onClick={() => set(null, 0)}>Zatvoriť</button>
@@ -206,7 +206,7 @@ function SubmitWindow({ quiz, round, onChanged }: { quiz: Quiz; round: Round; on
             <select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} className="size-select">
               {[3, 5, 8, 10, 15].map((m) => <option key={m} value={m}>{m} min</option>)}
             </select>
-            <button className="button button-small" onClick={() => set(round.id, minutes)}>Otvoriť {round.name}. kolo</button>
+            <button className="button button-small" onClick={() => set(round.id, minutes)}>Otvoriť {roundLabel(round.name)}</button>
           </span>
         </>
       )}
@@ -218,8 +218,8 @@ function PublishButton({ round, openReviews, aiBusy, missing, onChanged }: { rou
   async function toggle() {
     if (!round.published_at) {
       const warn = [openReviews && `${openReviews} odpovedí čaká na kontrolu`, aiBusy && `${aiBusy} hárkov ešte hodnotí AI`, missing > 0 && `${missing} tímov neodovzdalo`].filter(Boolean)
-      if (!confirm(`Zverejniť body ${round.name}. kola na projektore a webe?${warn.length ? '\n\nPozor: ' + warn.join(', ') + '.' : ''}`)) return
-    } else if (!confirm(`Skryť body ${round.name}. kola z projektora?`)) return
+      if (!confirm(`Zverejniť body ${roundOf(round.name)} na projektore a webe?${warn.length ? '\n\nPozor: ' + warn.join(', ') + '.' : ''}`)) return
+    } else if (!confirm(`Skryť body ${roundOf(round.name)} z projektora?`)) return
     const { error } = await supabase.rpc('publish_round', { p_round_id: round.id, p_publish: !round.published_at })
     if (error) alert('Chyba: ' + error.message)
     onChanged()
@@ -523,7 +523,7 @@ function RegradeModal({ round, teams, subs, evs, onChanged, onClose }: { round: 
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal regrade" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2>Prehodnotiť otázku · {round.name}. kolo</h2>
+          <h2>Prehodnotiť otázku · {roundLabel(round.name)}</h2>
           <button className="button button-small button-ghost" onClick={onClose}>Zavrieť</button>
         </div>
         <div className="qn-pick">

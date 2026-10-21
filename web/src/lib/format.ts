@@ -26,3 +26,9 @@ export function spotsText(free: number, capacity: number, taken: number) {
   if (taken >= 10) return `Prihlásených je už ${taken} tímov`
   return `Registrácia je otvorená · kapacita ${capacity} tímov`
 }
+
+// kolá s číselným názvom („1“) vs. pomenované („Prestávkové kolo“)
+const numeric = (n: string) => /^\d+$/.test(n.trim())
+export const roundLabel = (n: string) => (numeric(n) ? `${n}. kolo` : n)
+export const roundShort = (n: string) => (numeric(n) ? `${n}.` : n)
+export const roundOf = (n: string) => (numeric(n) ? `${n}. kola` : `kola „${n}“`)

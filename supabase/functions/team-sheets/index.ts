@@ -20,7 +20,7 @@ Deno.serve(async (req) => {
   if (!team) return json({ error: 'not_found' }, 404)
 
   const [{ data: rounds }, { data: subs }, { data: scores }] = await Promise.all([
-    db.from('rounds').select('id, name, round_order, published_at, round_topics(id, topic_order, name, max_points, categories(name), correct_answers(question_number, correct_answer))')
+    db.from('rounds').select('id, name, round_order, published_at, kind, round_topics(id, topic_order, name, max_points, categories(name), correct_answers(question_number, correct_answer))')
       .eq('quiz_id', team.quiz_id).order('round_order'),
     db.from('answer_submissions').select('id, round_id, photo_path, submitted_at, ai_status')
       .eq('team_id', team.id).in('status', ['pending', 'reviewed']).order('submitted_at', { ascending: false }),
@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
   const out = []
   for (const r of rounds ?? []) {
     const sub = latest.get(r.id)
-    const base = { id: r.id, name: r.name, order: r.round_order, submitted: !!sub, submitted_at: sub?.submitted_at ?? null }
+    const base = { id: r.id, name: r.name, order: r.round_order, kind: r.kind, submitted: !!sub, submitted_at: sub?.submitted_at ?? null }
     if (!r.published_at) { out.push({ ...base, published: false }); continue }
 
     type RT = { id: string; topic_order: number; name: string | null; max_points: number | null; categories: { name: string } | null; correct_answers: { question_number: number; correct_answer: string }[] }

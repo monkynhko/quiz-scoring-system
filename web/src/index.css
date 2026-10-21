@@ -465,3 +465,10 @@ table.regs { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .zoom-photo { max-width: 100%; max-height: calc(100vh - 32px); border-radius: 12px; margin: auto; }
 .team-link { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px; }
 @media (max-width: 760px) { .sheet-body.readonly { grid-template-columns: 1fr; } }
+.round-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.round-head .round-name { flex: 1 1 180px; font-weight: 800; font-size: 1.1rem; }
+.round-head select { width: auto; flex: 0 1 260px; }
+.round-tools { display: flex; gap: 6px; }
+.round-editor.manual { border-style: dashed; }
+.topic-max { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.topic-max input { width: 5.5em; }

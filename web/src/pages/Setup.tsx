@@ -11,8 +11,8 @@ type EventRow = { id: string; title: string; starts_at: string; quiz_id: string 
 type Season = { id: string; name: string; is_active: boolean }
 type Category = { id: string; name: string }
 type Answer = { id?: string; question_number: number; correct_answer: string; accept_alternatives: string[] | null; ai_note: string | null }
-type Topic = { id: string; topic_order: number; category_id: string | null; name: string | null; correct_answers: Answer[] }
-type Round = { id: string; name: string; round_order: number; round_topics: Topic[] }
+type Topic = { id: string; topic_order: number; category_id: string | null; name: string | null; max_points: number | null; correct_answers: Answer[] }
+type Round = { id: string; name: string; round_order: number; kind: 'sheet' | 'manual'; round_topics: Topic[] }
 
 export default function Setup() {
   return <AdminGate>{() => <SetupScreen />}</AdminGate>
@@ -87,7 +87,7 @@ function QuizEditor({ quizId, event }: { quizId: string; event: EventRow }) {
       supabase.from('quizzes').select('title, season_id, allow_new_teams, created_at').eq('id', quizId).single(),
       supabase.from('seasons').select('id, name, is_active').order('start_date'),
       supabase.from('categories').select('id, name').order('name'),
-      supabase.from('rounds').select('id, name, round_order, round_topics(id, topic_order, category_id, name, correct_answers(id, question_number, correct_answer, accept_alternatives, ai_note))').eq('quiz_id', quizId).order('round_order'),
+      supabase.from('rounds').select('id, name, round_order, kind, round_topics(id, topic_order, category_id, name, max_points, correct_answers(id, question_number, correct_answer, accept_alternatives, ai_note))').eq('quiz_id', quizId).order('round_order'),
       supabase.from('teams').select('id, name').eq('quiz_id', quizId).order('name'),
     ])
     setQuiz(q.data ?? undefined); setSeasons((s.data ?? []) as Season[]); setCats((c.data ?? []) as Category[])
@@ -128,8 +128,64 @@ function QuizEditor({ quizId, event }: { quizId: string; event: EventRow }) {
   }
 
   if (!quiz || !rounds) return <Spinner />
-  const filled = rounds.reduce((s, r) => s + r.round_topics.reduce((a, t) => a + t.correct_answers.filter((x) => x.correct_answer.trim()).length, 0), 0)
-  const needed = rounds.length * 10
+  const sheetRounds = rounds.filter((r) => r.kind === 'sheet')
+  const filled = sheetRounds.reduce((s, r) => s + r.round_topics.reduce((a, t) => a + t.correct_answers.filter((x) => x.correct_answer.trim()).length, 0), 0)
+  const needed = sheetRounds.reduce((s, r) => s + r.round_topics.length * 5, 0)
+
+  // ---- štruktúra kvízu (kolá, typ kola, témy, poradie)
+  async function addRound(kind: 'sheet' | 'manual') {
+    const order = rounds!.length
+    const sheetNo = rounds!.filter((r) => r.kind === 'sheet').length + 1
+    const name = kind === 'sheet' ? String(sheetNo) : 'Prestávkové kolo'
+    const { data: r, error } = await supabase.from('rounds').insert({ quiz_id: quizId, name, round_order: order, kind, published_at: null }).select('id').single()
+    if (error || !r) { alert('Chyba: ' + error?.message); return }
+    await supabase.from('round_topics').insert(kind === 'sheet' ? [1, 2].map((o) => ({ round_id: r.id, topic_order: o, max_points: 5 })) : [{ round_id: r.id, topic_order: 1, max_points: 5 }])
+    load()
+  }
+  async function deleteRound(r: Round) {
+    const [{ count: subs }, { count: sc }] = await Promise.all([
+      supabase.from('answer_submissions').select('id', { count: 'exact', head: true }).eq('round_id', r.id),
+      supabase.from('scores').select('id', { count: 'exact', head: true }).eq('round_id', r.id),
+    ])
+    if ((subs ?? 0) + (sc ?? 0) > 0) { alert('Toto kolo už má odovzdané hárky alebo body – nedá sa zmazať.'); return }
+    if (!confirm(`Zmazať kolo „${r.name}“ aj s jeho témami a odpoveďami?`)) return
+    await supabase.from('rounds').delete().eq('id', r.id)
+    const rest = rounds!.filter((x) => x.id !== r.id)
+    await Promise.all(rest.map((x, i) => x.round_order !== i ? supabase.from('rounds').update({ round_order: i }).eq('id', x.id) : null))
+    load()
+  }
+  async function moveRound(i: number, d: -1 | 1) {
+    const a = rounds![i], b = rounds![i + d]
+    if (!b) return
+    await supabase.from('rounds').update({ round_order: -1 }).eq('id', a.id)
+    await supabase.from('rounds').update({ round_order: a.round_order }).eq('id', b.id)
+    await supabase.from('rounds').update({ round_order: b.round_order }).eq('id', a.id)
+    load()
+  }
+  async function renameRound(r: Round, name: string) {
+    const v = name.trim()
+    if (!v || v === r.name) return
+    await supabase.from('rounds').update({ name: v }).eq('id', r.id)
+    r.name = v
+  }
+  async function setKind(r: Round, kind: 'sheet' | 'manual') {
+    if (kind === 'sheet' && r.round_topics.length > 2) { alert('Kolo s hárkom môže mať najviac 2 témy (hárok má 10 riadkov). Najprv zmažte témy navyše.'); return }
+    await supabase.from('rounds').update({ kind }).eq('id', r.id)
+    load()
+  }
+  async function addTopic(r: Round) {
+    const order = Math.max(0, ...r.round_topics.map((t) => t.topic_order)) + 1
+    await supabase.from('round_topics').insert({ round_id: r.id, topic_order: order, max_points: 5 })
+    load()
+  }
+  async function deleteTopic(r: Round, t: Topic) {
+    if (r.round_topics.length <= 1) { alert('Kolo musí mať aspoň jednu tému.'); return }
+    if (!confirm(`Zmazať tému ${t.topic_order}${t.name ? ` (${t.name})` : ''} aj s odpoveďami a bodmi?`)) return
+    await supabase.from('round_topics').delete().eq('id', t.id)
+    const rest = r.round_topics.filter((x) => x.id !== t.id).sort((a, b) => a.topic_order - b.topic_order)
+    for (const [i, x] of rest.entries()) if (x.topic_order !== i + 1) await supabase.from('round_topics').update({ topic_order: i + 1 }).eq('id', x.id)
+    load()
+  }
   return (
     <>
       <article className="card">
@@ -164,20 +220,46 @@ function QuizEditor({ quizId, event }: { quizId: string; event: EventRow }) {
         <button className="button button-small button-ghost" onClick={addTeam}>➕ Pridať tím ručne</button>
       </details>
 
-      {rounds.map((r) => (
-        <article key={r.id} className="card">
-          <h2>{r.name}. kolo</h2>
+      {rounds.map((r, i) => (
+        <article key={r.id} className={`card round-editor ${r.kind === 'manual' ? 'manual' : ''}`}>
+          <div className="round-head">
+            <input className="round-name" defaultValue={r.name} aria-label="Názov kola" onBlur={(e) => renameRound(r, e.target.value)} />
+            <select value={r.kind} onChange={(e) => setKind(r, e.target.value as 'sheet' | 'manual')} aria-label="Typ kola">
+              <option value="sheet">📷 Hárok – opravuje AI</option>
+              <option value="manual">✍️ Prestávkové – ručné body</option>
+            </select>
+            <span className="round-tools">
+              <button className="button button-small button-ghost" disabled={i === 0} onClick={() => moveRound(i, -1)} title="Posunúť vyššie">↑</button>
+              <button className="button button-small button-ghost" disabled={i === rounds.length - 1} onClick={() => moveRound(i, 1)} title="Posunúť nižšie">↓</button>
+              <button className="button button-small button-ghost" onClick={() => deleteRound(r)} title="Zmazať kolo">🗑</button>
+            </span>
+          </div>
+          {r.kind === 'manual' && <p className="hint">Body zadáte v Opravovaní → Ručné body. Maximum môžete zmeniť aj neskôr.</p>}
           {[...r.round_topics].sort((a, b) => a.topic_order - b.topic_order).map((t) => (
-            <TopicEditor key={t.id} topic={t} cats={cats} onNewCategory={newCategory} />
+            <TopicEditor key={t.id} topic={t} cats={cats} onNewCategory={newCategory} manual={r.kind === 'manual'} onDelete={r.round_topics.length > 1 ? () => deleteTopic(r, t) : undefined} />
           ))}
+          {(r.kind === 'manual' ? r.round_topics.length < 6 : r.round_topics.length < 2) && (
+            <button className="button button-small button-ghost" onClick={() => addTopic(r)}>➕ Pridať tému</button>
+          )}
         </article>
       ))}
+      <div className="cta-row center-row">
+        <button className="button button-ghost" onClick={() => addRound('sheet')}>➕ Kolo s hárkom</button>
+        <button className="button button-ghost" onClick={() => addRound('manual')}>➕ Prestávkové kolo</button>
+      </div>
       <p className="hint center">Pokyn pre AI je nepovinný – napr. „interpret + pieseň, za každé ½ bodu“ alebo „stačí rok ±1“. Alternatívy AI rozpozná väčšinou sama.</p>
     </>
   )
 }
 
-function TopicEditor({ topic, cats, onNewCategory }: { topic: Topic; cats: Category[]; onNewCategory: () => Promise<string | null> }) {
+function TopicEditor({ topic, cats, onNewCategory, manual, onDelete }: { topic: Topic; cats: Category[]; onNewCategory: () => Promise<string | null>; manual: boolean; onDelete?: () => void }) {
+  const [maxPts, setMaxPts] = useState(String(topic.max_points ?? 5))
+  async function saveMax() {
+    const v = Number(maxPts.replace(',', '.'))
+    if (!(v > 0) || v === Number(topic.max_points)) { setMaxPts(String(topic.max_points ?? 5)); return }
+    await supabase.from('round_topics').update({ max_points: v }).eq('id', topic.id)
+    topic.max_points = v
+  }
   const [cat, setCat] = useState(topic.category_id ?? '')
   const [name, setName] = useState(topic.name ?? '')
   async function saveName() {
@@ -205,7 +287,11 @@ function TopicEditor({ topic, cats, onNewCategory }: { topic: Topic; cats: Categ
       <label className="topic-cat">Názov témy <span className="hint">(vo výsledkoch, napr. Vikingovia)</span>
         <input value={name} placeholder="nepovinné" onChange={(e) => setName(e.target.value)} onBlur={saveName} />
       </label>
-      {answers.map((a) => <AnswerRow key={a.question_number} topicId={topic.id} answer={a} label={offset + a.question_number} />)}
+      <div className="topic-cat">
+        <label className="topic-max">Max. bodov <input inputMode="decimal" value={maxPts} onChange={(e) => setMaxPts(e.target.value)} onBlur={saveMax} /></label>
+        {onDelete && <button className="button button-small button-ghost" onClick={onDelete}>🗑 Zmazať tému</button>}
+      </div>
+      {!manual && answers.map((a) => <AnswerRow key={a.question_number} topicId={topic.id} answer={a} label={offset + a.question_number} />)}
     </div>
   )
 }

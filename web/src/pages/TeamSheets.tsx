@@ -2,13 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Spinner, QR } from '../components'
-import { time } from '../lib/format'
+import { time, roundLabel, roundOf } from '../lib/format'
 
 // „Naše hárky“ – opravené hárky tímu, iba na čítanie. Kolo sa ukáže až po zverejnení na projektore.
 
 type Answer = { n: number; written: string; correct: string; points: number | null }
 type RoundView = {
-  id: string; name: string; order: number; submitted: boolean; submitted_at: string | null; published: boolean
+  id: string; name: string; order: number; kind?: 'sheet' | 'manual'; submitted: boolean; submitted_at: string | null; published: boolean
   photo?: string | null; answers?: Answer[]; score?: number | null; topics?: { order: number; name: string; max: number; score: number | null }[]
 }
 type Data = { team: string; quiz: string; total: number; rounds: RoundView[] }
@@ -37,7 +37,7 @@ export default function TeamSheets() {
   // naposledy zverejnené kolo otvoríme automaticky
   useEffect(() => {
     if (!data || open !== undefined) return
-    const last = [...data.rounds].reverse().find((r) => r.published && r.submitted)
+    const last = [...data.rounds].reverse().find((r) => r.published && r.submitted && r.kind !== 'manual')
     if (last) setOpen(last.id)
   }, [data, open])
 
@@ -71,17 +71,24 @@ export default function TeamSheets() {
       <div className="sheet-rounds">
         {data.rounds.map((r) => (
           <article key={r.id} className={`card sheet-round ${r.published ? '' : 'waiting'}`}>
+            {r.kind === 'manual' ? (
+              <div className="sheet-round-head">
+                <span className="sheet-round-name">{roundLabel(r.name)}</span>
+                <span className="sheet-round-state">{r.published ? <strong>{fmt(r.score)} b.</strong> : 'čaká na zverejnenie'}</span>
+              </div>
+            ) : (
             <button className="sheet-round-head" disabled={!r.published || !r.submitted} onClick={() => setOpen(open === r.id ? '' : r.id)} aria-expanded={open === r.id}>
-              <span className="sheet-round-name">{r.name}. kolo</span>
+              <span className="sheet-round-name">{roundLabel(r.name)}</span>
               <span className="sheet-round-state">
                 {!r.submitted ? (r.published ? 'neodovzdané' : '–')
                   : !r.published ? `odovzdané ${r.submitted_at ? time(r.submitted_at) : ''} · čaká na zverejnenie`
                   : <><strong>{fmt(r.score)} b.</strong> {open === r.id ? '▲' : '▼'}</>}
               </span>
             </button>
+            )}
             {r.published && r.submitted && open === r.id && (
               <div className="sheet-body readonly">
-                {r.photo && <button className="sheet-photo" onClick={() => setZoom(r.photo!)}><img src={r.photo} alt={`Hárok ${r.name}. kola`} loading="lazy" /></button>}
+                {r.photo && <button className="sheet-photo" onClick={() => setZoom(r.photo!)}><img src={r.photo} alt={`Hárok ${roundOf(r.name)}`} loading="lazy" /></button>}
                 <div>
                   {r.topics?.map((t) => (
                     <div key={t.order} className="sheet-topic">

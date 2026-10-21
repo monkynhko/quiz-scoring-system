@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { roundLabel, roundOf } from '../lib/format'
 import { supabase } from '../lib/supabase'
 import { blobToDataUrl, compressPhoto, dataUrlToBlob } from '../lib/image'
 import { Spinner } from '../components'
@@ -55,12 +56,12 @@ export default function Submit() {
           if (tok) { const l = { ...read<Links>(LINK_KEY, {}), [p.team_id]: tok as string }; write(LINK_KEY, l); setLinks(l) }
         }
         if (error && /submit_closed/.test(error.message)) {
-          setMsg({ type: 'err', text: `Odovzdávanie ${p.round_name}. kola už bolo zatvorené. Ukážte hárok moderátorovi.` })
+          setMsg({ type: 'err', text: `Odovzdávanie ${roundOf(p.round_name)} už bolo zatvorené. Ukážte hárok moderátorovi.` })
         } else if (error) { setMsg({ type: 'wait', text: 'Slabý signál – skúšame znova…' }); break }
         else {
           const s = [...read<Sent[]>(SENT_KEY, []).filter((x) => !(x.round_id === p.round_id && x.team_id === p.team_id)), { round_id: p.round_id, team_id: p.team_id, at: Date.now() }]
           write(SENT_KEY, s); setSent(s)
-          setMsg({ type: 'ok', text: `Hárok ${p.round_name}. kola za tím ${p.team_name} je odovzdaný ✓` })
+          setMsg({ type: 'ok', text: `Hárok ${roundOf(p.round_name)} za tím ${p.team_name} je odovzdaný ✓` })
         }
         const rest = queueRef.current.slice(1)
         queueRef.current = rest; write(QUEUE_KEY, rest); setQueue(rest)
@@ -121,7 +122,7 @@ export default function Submit() {
   return (
     <article className="card submit-card">
       <p className="muted small" style={{ margin: 0 }}>{/^\d/.test(win.quiz_title) ? `Kvíz ${win.quiz_title}` : win.quiz_title}</p>
-      <h1>{win.round_name}. kolo</h1>
+      <h1>{roundLabel(win.round_name)}</h1>
       <p className="countdown">Do zatvorenia odovzdávania zostáva <strong>{Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}</strong></p>
 
       <label className="form">

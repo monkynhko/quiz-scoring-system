@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { roundLabel, roundShort } from '../lib/format'
 import { supabase } from '../lib/supabase'
 import { Spinner } from '../components'
 
@@ -163,9 +164,9 @@ function QuizResults({ quiz, cats }: { quiz: Quiz; cats: Map<string, Cat> }) {
       return { id: team.id, name: team.name, perRound, total: perRound.reduce((a, b) => a + b, 0), topics }
     }).filter((r) => r.perRound.length && (r.total > 0 || data.rs.some((s) => s.team_id === r.id) || data.ts.some((s) => s.team_id === r.id))))
 
-    const roundWinners = published.map((_r, ri) => {
+    const roundWinners = published.map((rd, ri) => {
       const best = Math.max(0, ...rows.map((x) => x.perRound[ri]))
-      return { name: `${ri + 1}. kolo`, score: best, teams: rows.filter((x) => x.perRound[ri] === best && best > 0).map((x) => x.name) }
+      return { name: roundLabel(rd.name), score: best, teams: rows.filter((x) => x.perRound[ri] === best && best > 0).map((x) => x.name) }
     })
     // témy kvízu (každá téma zvlášť, v poradí kôl)
     const topicStats = published.flatMap((r, ri) => (topicsBy.get(r.id) ?? []).map((t) => {
@@ -200,7 +201,7 @@ function QuizResults({ quiz, cats }: { quiz: Quiz; cats: Map<string, Cat> }) {
         <p className="muted small">Ťuknite na tím pre detail tém.</p>
         <div className="table-wrap">
           <table className="board results-board">
-            <thead><tr><th></th><th>Tím</th>{published.map((_, i) => <th key={i}>{i + 1}.</th>)}<th>Spolu</th></tr></thead>
+            <thead><tr><th></th><th>Tím</th>{published.map((r) => <th key={r.id}>{roundShort(r.name)}</th>)}<th>Spolu</th></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <RowWithDetail key={r.id} open={open === r.id} onToggle={() => setOpen(open === r.id ? undefined : r.id)} cols={published.length + 3}

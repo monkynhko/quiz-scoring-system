@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { roundShort } from '../lib/format'
 import { supabase } from '../lib/supabase'
 import { Spinner } from '../components'
 
@@ -69,7 +70,7 @@ export default function Projector({ big = true }: { big?: boolean }) {
       </div>
       {rounds.length === 0 ? <p className="lead center">Výsledky zatiaľ neboli zverejnené.</p> : (
         <table className="board">
-          <thead><tr><th></th><th>Tím</th>{rounds.map((r) => <th key={r.id}>{r.name}.</th>)}<th>Spolu</th></tr></thead>
+          <thead><tr><th></th><th>Tím</th>{rounds.map((r) => <th key={r.id}>{roundShort(r.name)}</th>)}<th>Spolu</th></tr></thead>
           <tbody>
             {ranked.map((r) => (
               <tr key={r.team} className={r.place <= 3 ? `top top${r.place}` : ''}>
