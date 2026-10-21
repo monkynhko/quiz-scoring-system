@@ -447,16 +447,21 @@ table.regs { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .sheet-body.readonly { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 16px; padding: 0 18px 18px; }
 .sheet-photo { border: 0; padding: 0; background: none; cursor: zoom-in; }
 .sheet-photo img { width: 100%; border-radius: 12px; display: block; }
-.sheet-topic h3 { margin: 4px 0 6px; font-size: 1rem; color: var(--pink-soft); }
-.sheet-answers { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-.sheet-answers td { padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
-.sheet-answers .qn { width: 2em; color: var(--muted); }
+.sheet-topic { margin-bottom: 14px; }
+.sheet-topic h3 { display: flex; justify-content: space-between; align-items: center; margin: 4px 0 6px; font-size: 1rem; color: var(--pink-soft); }
+.topic-pts { color: var(--yellow); font-size: 0.9rem; font-weight: 700; }
+.sheet-answers { width: 100%; border-collapse: collapse; }
+.sheet-answers tr { height: 3.3em; }
+.sheet-answers td { padding: 6px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; line-height: 1.3; }
+.sheet-answers .qn { width: 2em; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; padding-right: 10px; }
 .sheet-answers .written { font-weight: 600; overflow-wrap: anywhere; }
-.sheet-answers .correct { color: var(--green); font-size: 0.88rem; }
-.sheet-answers .pts { width: 2.5em; text-align: center; font-weight: 800; font-size: 1.05rem; }
-.sheet-answers tr.ok .pts { color: var(--green); }
-.sheet-answers tr.half .pts { color: var(--yellow); }
-.sheet-answers tr.bad .pts { color: var(--red); }
+.sheet-answers .correct { color: var(--green); font-size: 0.85rem; margin-top: 2px; }
+.sheet-answers .pts { width: 3em; text-align: right; }
+.pt { display: inline-grid; place-items: center; min-width: 2em; height: 2em; border-radius: 999px; font-weight: 800; font-size: 0.95rem; }
+.sheet-answers tr.ok .pt { color: var(--green); background: rgba(63, 232, 154, 0.12); }
+.sheet-answers tr.half .pt { color: var(--yellow); background: rgba(255, 210, 63, 0.12); }
+.sheet-answers tr.bad .pt { color: var(--red); background: rgba(255, 90, 110, 0.12); }
+.sheet-note { margin-top: 4px; }
 .zoom-photo { max-width: 100%; max-height: calc(100vh - 32px); border-radius: 12px; margin: auto; }
 .team-link { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px; }
 @media (max-width: 760px) { .sheet-body.readonly { grid-template-columns: 1fr; } }

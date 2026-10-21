@@ -85,24 +85,24 @@ export default function TeamSheets() {
                 <div>
                   {r.topics?.map((t) => (
                     <div key={t.order} className="sheet-topic">
-                      <h3>{t.name} <span className="muted small">{fmt(t.score)}/{t.max}</span></h3>
+                      <h3><span>{t.name}</span><span className="topic-pts">{fmt(t.score)} / {t.max}</span></h3>
                       <table className="sheet-answers">
                         <tbody>
                           {(r.answers ?? []).filter((a) => Math.ceil(a.n / 5) === t.order).map((a) => (
                             <tr key={a.n} className={a.points === 1 ? 'ok' : a.points ? 'half' : 'bad'}>
                               <td className="qn">{a.n}</td>
                               <td>
-                                <div className="written">{a.written || <span className="muted">(nič)</span>}</div>
+                                <div className="written">{a.written.replace(/\s*\(prečiarknuté:[^)]*\)/gi, '').trim() || <span className="muted">(nič)</span>}</div>
                                 {a.points !== 1 && <div className="correct">✓ {a.correct}</div>}
                               </td>
-                              <td className="pts">{fmt(a.points)}</td>
+                              <td className="pts"><span className="pt">{fmt(a.points)}</span></td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
                   ))}
-                  <p className="muted small">Nesúhlasíte s hodnotením? Príďte počas prestávky na centrálu.</p>
+                  <p className="muted small sheet-note">V prípade omylu, prosím, príďte počas prestávky na centrálu.</p>
                 </div>
               </div>
             )}
