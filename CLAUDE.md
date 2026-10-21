@@ -17,7 +17,7 @@ Komunikácia s používateľom (Peter, hlavný admin) po slovensky.
   cd web && npm run build && CLOUDFLARE_API_TOKEN=$(cat ~/.cloudflare-token) CLOUDFLARE_ACCOUNT_ID=48bc900901590bd9ce82fa625fdbce2c \
     npx wrangler pages deploy dist --project-name kvizfactory --branch main --commit-hash $(git rev-parse HEAD)
   ```
-  Node cez nvm (`. ~/.nvm/nvm.sh`). `web/.env.local` = Supabase URL + anon kľúč (necommitovať). Build kopíruje starý leaderboard na `/vysledky/`.
+  Node cez nvm (`. ~/.nvm/nvm.sh`). `web/.env.local` = Supabase URL + anon kľúč (necommitovať). Build kopíruje starý leaderboard na `/vysledky-stare/`.
 - **Supabase** projekt `rpkipyfafkdndcaoedtq` (eu-central-2, bezplatný plán). Migrácie v `supabase/migrations/` sa spúšťajú ručne
   cez Management API (`loadtest/sb.py` → `sql()`), nie `supabase db push`. Vždy najprv skúška v `begin; … rollback;`.
   - Edge functions (`supabase/functions/`, deploy: `npx supabase functions deploy <name> --project-ref rpkipyfafkdndcaoedtq --use-api`):
@@ -46,7 +46,7 @@ Komunikácia s používateľom (Peter, hlavný admin) po slovensky.
 2. **Nič neodchádza von bez Petrovho výslovného „áno“** – e-maily, príspevky na FB/IG, mazanie dát. **Nasadenie webu a push do `v2`: od 20. 10. 2026 hneď po každej hotovej zmene (Peter: „všetko čo spravíš hneď nasaď“).**
    Najprv ukázať presný obsah. (Aj podľa ~/CLAUDE.md.)
 3. **Pred každým testom, ktorý stojí peniaze** (Gemini, platené API): odhad ceny a súhlas. Pozor aj na automatické opakovania.
-4. **Počas kvízu sa nenasadzuje.** Najbližší kvíz: utorok 20. 10. 2026, 19:00, Káčečko (35 tímov kapacita).
+4. **Počas kvízu sa nenasadzuje.** Najbližší kvíz: utorok 10. 11. 2026, 19:00, Káčečko (35 tímov kapacita).
 5. Texty na webe vecné, nie „marketingovo trápne“. Pohyblivé neónové SVG ilustrácie v štýle loga (magenta #fa14c3, žltá #ffd23f,
    tehlová stena) sú vítané; vždy s `prefers-reduced-motion`.
 6. Commity s autorom z `git log main` a riadkom `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
