@@ -22,7 +22,7 @@ Komunikácia s používateľom (Peter, hlavný admin) po slovensky.
   cez Management API (`loadtest/sb.py` → `sql()`), nie `supabase db push`. Vždy najprv skúška v `begin; … rollback;`.
   - Edge functions (`supabase/functions/`, deploy: `npx supabase functions deploy <name> --project-ref rpkipyfafkdndcaoedtq --use-api`):
     `send-registration-email` (Resend), `manage-staff` (organizátori), `grade-sheet` (Gemini, `--no-verify-jwt`, chránená GRADE_SECRET),
-    `publish-social` (FB/IG), `evaluate-submission` (STARÁ, pre starý admin).
+    `publish-social` (FB/IG), `team-sheets` (verejná, `--no-verify-jwt`: hárky tímu podľa tokenu), `evaluate-submission` (STARÁ, pre starý admin).
   - Úložisko: `answer-sheets` (súkromné, iba admin číta), `social` (verejné – obrázky príspevkov).
   - `pg_cron` job `retry-stuck-grading` (každú minútu), `pg_net` volá grade-sheet; nastavenia v `private.settings`.
   - Roly: `profiles.is_admin` / `role` ('admin' | 'door') / `is_owner` (iba petis.spano@gmail.com pridáva adminov). Registrácia účtov vypnutá.
@@ -36,7 +36,9 @@ Komunikácia s používateľom (Peter, hlavný admin) po slovensky.
 ## Stránky
 `/` úvod · `/registracia/:slug` · `/listky/:token` (stránka tímu, zmena počtu, potvrdenie účasti) · `/vstupenky` (vo výstavbe) ·
 `/podmienky` · `/ochrana-udajov` · `/admin` · `/vstup` (skenovanie QR, offline) · `/priprava` (kvíz z eventu, odpovede) ·
-`/opravovanie` · `/odovzdat` (tímy fotia hárky) · `/projektor` · `/live` · `/vysledky/` (starý leaderboard).
+`/opravovanie` (aj vyhľadávanie tímu a „Prehodnotiť otázku“ bez AI) · `/odovzdat` (tímy fotia hárky, potom dostanú odkaz na „Naše hárky“) ·
+`/tim/:token` (opravené hárky tímu len na čítanie, iba zverejnené kolá; token v `teams.view_token`, verejne nečitateľný) ·
+`/projektor` · `/live` · `/vysledky` (nové výsledky a liga) · `/vysledky-stare/` (starý leaderboard).
 
 ## Dohodnuté pravidlá (dôležité)
 1. **Ostré registrácie sú posvätné.** Pred každou zmenou databázy, ktorá sa ich môže dotknúť: záloha (`~/projects/kvizfactory-backups/`)

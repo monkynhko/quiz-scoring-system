@@ -431,3 +431,32 @@ table.regs { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .regrade-now { color: var(--yellow); white-space: nowrap; }
 .regrade-btns { display: flex; gap: 6px; }
 @media (max-width: 560px) { .regrade-row { grid-template-columns: 1fr auto; } .regrade-btns { grid-column: 1 / -1; } }
+
+/* ---------- naše hárky (tím) */
+.team-sheets .hl { color: var(--yellow); }
+.center-row { justify-content: center; }
+.share-box { display: grid; justify-items: center; gap: 6px; margin-top: 12px; }
+.sheet-rounds { display: grid; gap: 12px; }
+.sheet-round { padding: 0; overflow: hidden; }
+.sheet-round.waiting { opacity: 0.75; }
+.sheet-round-head { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; background: none; border: 0; color: var(--text); font: inherit; padding: 16px 18px; cursor: pointer; text-align: left; }
+.sheet-round-head:disabled { cursor: default; }
+.sheet-round-name { font-weight: 800; font-size: 1.1rem; }
+.sheet-round-state { color: var(--muted); font-size: 0.9rem; }
+.sheet-round-state strong { color: var(--yellow); font-size: 1.1rem; }
+.sheet-body.readonly { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 16px; padding: 0 18px 18px; }
+.sheet-photo { border: 0; padding: 0; background: none; cursor: zoom-in; }
+.sheet-photo img { width: 100%; border-radius: 12px; display: block; }
+.sheet-topic h3 { margin: 4px 0 6px; font-size: 1rem; color: var(--pink-soft); }
+.sheet-answers { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+.sheet-answers td { padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.sheet-answers .qn { width: 2em; color: var(--muted); }
+.sheet-answers .written { font-weight: 600; overflow-wrap: anywhere; }
+.sheet-answers .correct { color: var(--green); font-size: 0.88rem; }
+.sheet-answers .pts { width: 2.5em; text-align: center; font-weight: 800; font-size: 1.05rem; }
+.sheet-answers tr.ok .pts { color: var(--green); }
+.sheet-answers tr.half .pts { color: var(--yellow); }
+.sheet-answers tr.bad .pts { color: var(--red); }
+.zoom-photo { max-width: 100%; max-height: calc(100vh - 32px); border-radius: 12px; margin: auto; }
+.team-link { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px; }
+@media (max-width: 760px) { .sheet-body.readonly { grid-template-columns: 1fr; } }

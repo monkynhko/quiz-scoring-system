@@ -12,6 +12,8 @@ type Sent = { round_id: string; team_id: string; at: number }
 const QUEUE_KEY = 'submit:queue'
 const SENT_KEY = 'submit:sent'
 const TEAM_KEY = 'submit:team'
+const LINK_KEY = 'submit:links'   // team_id → tajný odkaz na „Naše hárky“
+type Links = Record<string, string>
 const read = <T,>(k: string, f: T): T => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : f } catch { return f } }
 const write = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch { /* plné úložisko */ } }
 
@@ -20,6 +22,7 @@ export default function Submit() {
   const [teamId, setTeamId] = useState<string>(() => read(TEAM_KEY, ''))
   const [queue, setQueue] = useState<Pending[]>(() => read(QUEUE_KEY, []))
   const [sent, setSent] = useState<Sent[]>(() => read(SENT_KEY, []))
+  const [links, setLinks] = useState<Links>(() => read(LINK_KEY, {}))
   const [preview, setPreview] = useState<{ blob: Blob; url: string }>()
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ type: 'ok' | 'err' | 'wait'; text: string }>()
@@ -46,7 +49,11 @@ export default function Submit() {
         const up = await supabase.storage.from('answer-sheets').upload(path, blob, { contentType: 'image/jpeg', upsert: false })
         // fotka už je nahratá z predchádzajúceho pokusu → pokračujeme odovzdaním
         if (up.error && !/exist|duplicate/i.test(up.error.message)) { setMsg({ type: 'wait', text: 'Slabý signál – fotku odošleme hneď, ako to pôjde. Nechajte stránku otvorenú.' }); break }
-        const { error } = await supabase.rpc('submit_sheet', { p_quiz_id: p.quiz_id, p_team_id: p.team_id, p_round_id: p.round_id, p_photo_path: path })
+        const { data: subId, error } = await supabase.rpc('submit_sheet', { p_quiz_id: p.quiz_id, p_team_id: p.team_id, p_round_id: p.round_id, p_photo_path: path })
+        if (!error && subId) {
+          const { data: tok } = await supabase.rpc('team_token_for_submission', { p_submission_id: subId })
+          if (tok) { const l = { ...read<Links>(LINK_KEY, {}), [p.team_id]: tok as string }; write(LINK_KEY, l); setLinks(l) }
+        }
         if (error && /submit_closed/.test(error.message)) {
           setMsg({ type: 'err', text: `Odovzdávanie ${p.round_name}. kola už bolo zatvorené. Ukážte hárok moderátorovi.` })
         } else if (error) { setMsg({ type: 'wait', text: 'Slabý signál – skúšame znova…' }); break }
@@ -103,6 +110,7 @@ export default function Submit() {
       <p className="muted">Počkajte na pokyn moderátora – stránka sa otvorí sama.</p>
       {pendingHere.length > 0 && <p className="alert">Čaká na odoslanie: {pendingHere.length} fotka. Nechajte stránku otvorenú.</p>}
       {msg && <p className={msg.type === 'ok' ? 'success' : 'alert'}>{msg.text}</p>}
+      {teamId && links[teamId] && <TeamLink token={links[teamId]} />}
     </article>
   )
 
@@ -146,6 +154,25 @@ export default function Submit() {
         </>
       )}
       {msg && <p className={msg.type === 'ok' ? 'success' : 'alert'} role="status">{msg.text}</p>}
+      {team && links[teamId] && <TeamLink token={links[teamId]} />}
     </article>
+  )
+}
+
+// odkaz na opravené hárky tímu – ukáže sa po prvom odovzdaní
+function TeamLink({ token }: { token: string }) {
+  const url = `${location.origin}/tim/${token}`
+  async function share() {
+    if (navigator.share) { try { await navigator.share({ title: 'Naše hárky – Kvíz Factory', url }); return } catch { /* zrušené */ } }
+    await navigator.clipboard?.writeText(url); alert('Odkaz je skopírovaný – pošlite ho tímu.')
+  }
+  return (
+    <div className="team-link">
+      <p><strong>Opravené hárky a body</strong> uvidíte po zverejnení výsledkov kola.</p>
+      <div className="cta-row">
+        <a className="button" href={url}>📄 Naše hárky</a>
+        <button className="button button-ghost" onClick={share}>📤 Poslať tímu</button>
+      </div>
+    </div>
   )
 }

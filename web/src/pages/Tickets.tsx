@@ -11,6 +11,10 @@ export default function Tickets() {
   const isNew = params.get('nova') === '1'
   const onlySeat = params.get('listok') ? Number(params.get('listok')) : null
   const [reg, setReg] = useState<RegistrationView | null>()
+  const [sheetsToken, setSheetsToken] = useState<string | null>(null)
+  useEffect(() => {
+    supabase.rpc('team_token_for_registration', { p_manage_token: token }).then(({ data }) => setSheetsToken((data as string | null) ?? null))
+  }, [token])
   const reload = () => supabase.rpc('registration_by_token', { p_token: token }).then(({ data, error }) => setReg(error ? null : (data as RegistrationView | null)))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { reload() }, [token])
@@ -57,6 +61,7 @@ export default function Tickets() {
           </p>
         )}
         {reg.status === 'cancelled' && <p className="alert">Táto registrácia bola zrušená.</p>}
+        {sheetsToken && <p><a className="button button-ghost" href={`/tim/${sheetsToken}`}>📄 Naše opravené hárky a body</a></p>}
 
         {reg.status === 'confirmed' && reg.payment_status !== 'paid' && !e.shop_open && (
           <div className="payment reminder">
