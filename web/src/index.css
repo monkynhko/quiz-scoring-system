@@ -421,3 +421,13 @@ table.regs { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .topic-cat input { max-width: 320px; }
 .team-search { position: sticky; top: 0; z-index: 5; display: flex; gap: 10px; align-items: center; padding: 8px 0; background: linear-gradient(var(--bg) 70%, transparent); }
 .team-search input { flex: 1; }
+.modal.regrade { width: min(820px, 100%); }
+.qn-pick { display: flex; flex-wrap: wrap; gap: 6px; }
+.qn-pick .button { min-width: 2.6em; }
+.regrade-correct { margin: 0; }
+.regrade-list { display: grid; gap: 8px; }
+.regrade-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; background: #140f2b; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.regrade-text { min-width: 0; overflow-wrap: anywhere; }
+.regrade-now { color: var(--yellow); white-space: nowrap; }
+.regrade-btns { display: flex; gap: 6px; }
+@media (max-width: 560px) { .regrade-row { grid-template-columns: 1fr auto; } .regrade-btns { grid-column: 1 / -1; } }

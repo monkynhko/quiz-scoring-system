@@ -76,6 +76,7 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
   const [sheet, setSheet] = useState<Sub>()
   const [view, setView] = useState<'ai' | 'manual'>('ai')
   const [q, setQ] = useState('')
+  const [regrade, setRegrade] = useState(false)
 
   const load = useCallback(async () => {
     const [t, s, sc] = await Promise.all([
@@ -130,6 +131,7 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
         <button className={`button ${view === 'ai' ? '' : 'button-ghost'}`} onClick={() => setView('ai')}>📷 Hárky a AI</button>
         <button className={`button ${view === 'manual' ? '' : 'button-ghost'}`} onClick={() => setView('manual')}>✍️ Ručné body</button>
         <button className="button" disabled={!openReviews} onClick={() => setReviewing(true)}>✅ Kontrolovať ({openReviews})</button>
+        <button className="button button-ghost" disabled={!evs.length} onClick={() => setRegrade(true)}>🔁 Prehodnotiť otázku</button>
         <PublishButton round={round} openReviews={openReviews} aiBusy={aiBusy} missing={teams.length - subs.length} onChanged={onRoundChanged} />
       </div>
 
@@ -165,6 +167,7 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
         })}
       </div>}
 
+      {regrade && <RegradeModal round={round} teams={teams} subs={subs} evs={evs} onChanged={load} onClose={() => { setRegrade(false); load() }} />}
       {reviewing && <ReviewQueue roundId={round.id} onClose={() => { setReviewing(false); load() }} />}
       {sheet && <SheetModal sub={sheet} team={teams.find((t) => t.id === sheet.team_id)!} evs={evs.filter((e) => e.submission_id === sheet.id)} onClose={() => { setSheet(undefined); load() }} />}
     </>
@@ -460,5 +463,104 @@ export function ManualScores({ round, teams, onChanged }: { round: Round; teams:
         </table>
       </div>
     </article>
+  )
+}
+
+// ---------------------------------------------------------------- prehodnotenie otázky bez AI
+// Odpovede tímov na jednu otázku zoskupené podľa toho, čo napísali (bez ohľadu na veľké písmená, medzery a diakritiku).
+// Body pre celú skupinu sa nastavia naraz a databáza prepočíta súčty.
+
+const answerKey = (t: string | null) => (t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
+
+type CA = { question_number: number; correct_answer: string; accept_alternatives: string[] | null }
+type RTopic = { id: string; topic_order: number; name: string | null; correct_answers: CA[] }
+
+function RegradeModal({ round, teams, subs, evs, onChanged, onClose }: { round: Round; teams: Team[]; subs: Sub[]; evs: Ev[]; onChanged: () => void; onClose: () => void }) {
+  const [qn, setQn] = useState(1)
+  const [topics, setTopics] = useState<RTopic[]>([])
+  const [busy, setBusy] = useState<string>()
+  const [msg, setMsg] = useState<string>()
+  const [saveAlt, setSaveAlt] = useState(true)
+  useEffect(() => {
+    supabase.from('round_topics').select('id, topic_order, name, correct_answers(question_number, correct_answer, accept_alternatives)').eq('round_id', round.id)
+      .then(({ data }) => setTopics((data ?? []) as RTopic[]))
+  }, [round.id])
+
+  const topic = topics.find((t) => t.topic_order === Math.ceil(qn / 5))
+  const ca = topic?.correct_answers.find((a) => a.question_number === qn - (Math.ceil(qn / 5) - 1) * 5)
+  const teamOf = useMemo(() => Object.fromEntries(subs.map((s) => [s.id, teams.find((t) => t.id === s.team_id)?.name ?? '?'])), [subs, teams])
+  const groups = useMemo(() => {
+    const m = new Map<string, { key: string; label: string; labels: Map<string, number>; items: Ev[] }>()
+    for (const e of evs.filter((x) => x.question_number === qn)) {
+      const key = answerKey(e.ocr_text) || '(prázdne)'
+      if (!m.has(key)) m.set(key, { key, label: '', labels: new Map(), items: [] })
+      const g = m.get(key)!
+      const lbl = (e.ocr_text ?? '').trim() || '(nič nenapísali)'
+      g.labels.set(lbl, (g.labels.get(lbl) ?? 0) + 1); g.items.push(e)
+    }
+    return [...m.values()].map((g) => ({ ...g, label: [...g.labels.entries()].sort((a, b) => b[1] - a[1])[0][0] }))
+      .sort((a, b) => b.items.length - a.items.length || a.label.localeCompare(b.label, 'sk'))
+  }, [evs, qn])
+
+  const pts = (e: Ev) => (e.final_points ?? e.points ?? 0)
+  async function apply(g: (typeof groups)[number], p: number) {
+    setBusy(g.key + p); setMsg(undefined)
+    const { error } = await supabase.rpc('review_answers_bulk', { p_eval_ids: g.items.map((e) => e.id), p_points: p })
+    if (!error && p === 1 && saveAlt && topic && ca && g.key !== '(prázdne)') {
+      const alts = ca.accept_alternatives ?? []
+      if (!alts.some((a) => answerKey(a) === g.key) && answerKey(ca.correct_answer) !== g.key) {
+        const next = [...alts, g.label]
+        await supabase.from('correct_answers').update({ accept_alternatives: next }).eq('round_topic_id', topic.id).eq('question_number', ca.question_number)
+        ca.accept_alternatives = next
+      }
+    }
+    setBusy(undefined)
+    setMsg(error ? `Chyba: ${error.message}` : `„${g.label}“ → ${fmtPts(p)} b. pre ${g.items.length} ${g.items.length === 1 ? 'tím' : g.items.length < 5 ? 'tímy' : 'tímov'}. Súčty sa prepočítali.`)
+    onChanged()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal regrade" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>Prehodnotiť otázku · {round.name}. kolo</h2>
+          <button className="button button-small button-ghost" onClick={onClose}>Zavrieť</button>
+        </div>
+        <div className="qn-pick">
+          {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+            <button key={n} className={`button button-small ${n === qn ? '' : 'button-ghost'}`} onClick={() => { setQn(n); setMsg(undefined) }}>{n}</button>
+          ))}
+        </div>
+        <p className="regrade-correct">
+          {topic?.name && <span className="muted">{topic.name} · </span>}
+          Správne: <strong>{ca?.correct_answer || '–'}</strong>
+          {!!ca?.accept_alternatives?.length && <span className="muted"> · uznať aj: {ca.accept_alternatives.join(', ')}</span>}
+        </p>
+        <label className="checkbox-row small"><input type="checkbox" checked={saveAlt} onChange={(e) => setSaveAlt(e.target.checked)} /> pri 1 b. pridať odpoveď aj do „Uznať aj“ (pre ďalšie hárky)</label>
+        {msg && <p className={msg.startsWith('Chyba') ? 'alert' : 'success'}>{msg}</p>}
+        <div className="regrade-list">
+          {groups.map((g) => {
+            const cur = [...new Set(g.items.map(pts))]
+            return (
+              <div key={g.key} className="regrade-row">
+                <div className="regrade-text">
+                  <strong>{g.label}</strong> <span className="muted small">× {g.items.length}</span>
+                  <div className="muted small">{g.items.map((e) => teamOf[e.submission_id]).join(', ')}</div>
+                </div>
+                <div className="regrade-now small">{cur.length === 1 ? `${fmtPts(cur[0])} b.` : `rôzne (${cur.map((c) => fmtPts(c)).join('/')})`}</div>
+                <div className="regrade-btns">
+                  {[0, 0.5, 1].map((p) => (
+                    <button key={p} className={`button button-small ${cur.length === 1 && cur[0] === p ? '' : 'button-ghost'}`} disabled={!!busy} onClick={() => apply(g, p)}>
+                      {busy === g.key + p ? '…' : fmtPts(p)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+          {!groups.length && <p className="muted">K tejto otázke zatiaľ nie sú vyhodnotené odpovede.</p>}
+        </div>
+      </div>
+    </div>
   )
 }
