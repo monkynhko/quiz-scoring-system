@@ -10,7 +10,7 @@ type Season = { id: string; name: string; is_active: boolean }
 type Quiz = { id: string; title: string; created_at: string; season_id: string | null }
 type Team = { id: string; name: string; quiz_id: string }
 type Round = { id: string; quiz_id: string; name: string; round_order: number }
-type Topic = { id: string; round_id: string; category_id: string | null; topic_order: number; max_points: number | null }
+type Topic = { id: string; round_id: string; category_id: string | null; topic_order: number; max_points: number | null; name: string | null }
 type Cat = { id: string; name: string; icon: string | null }
 type TopicScore = { team_id: string; round_topic_id: string; score: number }
 type RoundScore = { team_id: string; round_id: string; score: number }
@@ -48,7 +48,7 @@ async function loadQuizzes(quizIds: string[]): Promise<QuizData> {
   ])
   const rIds = rounds.map((r) => r.id)
   const [topics, rs] = await Promise.all([
-    fetchIn<Topic>('round_topics', 'id, round_id, category_id, topic_order, max_points', 'round_id', rIds),
+    fetchIn<Topic>('round_topics', 'id, round_id, category_id, topic_order, max_points, name', 'round_id', rIds),
     fetchIn<RoundScore>('scores', 'team_id, round_id, score', 'round_id', rIds),
   ])
   const ts = await fetchIn<TopicScore>('topic_scores', 'team_id, round_topic_id, score', 'round_topic_id', topics.map((t) => t.id))
@@ -92,12 +92,9 @@ export default function Results() {
 
   return (
     <div className="results">
-      <section className="hero">
-        <h1>Výsledky</h1>
-        <p className="lead">Poradie kvízov, víťazi kôl a ligová tabuľka sezóny.</p>
-      </section>
-
-      <div className="results-controls card">
+      <div className="results-head">
+        <h1>{view === 'liga' ? `Liga · ${seasons.find((s) => s.id === seasonId)?.name ?? ''}` : `Výsledky · ${quizzes.find((q) => q.id === quizId)?.title ?? ''}`}</h1>
+      <div className="results-controls">
         <div className="seg" role="tablist">
           <button role="tab" aria-selected={view === 'kviz'} className={view === 'kviz' ? 'on' : ''} onClick={() => set({ pohlad: null })}>Kvíz</button>
           <button role="tab" aria-selected={view === 'liga'} className={view === 'liga' ? 'on' : ''} onClick={() => set({ pohlad: 'liga', kviz: null })}>Liga</button>
@@ -114,6 +111,7 @@ export default function Results() {
             </select>
           </label>
         )}
+      </div>
       </div>
 
       {view === 'kviz'
@@ -158,7 +156,7 @@ function QuizResults({ quiz, cats }: { quiz: Quiz; cats: Map<string, Cat> }) {
         for (const t of ts) {
           const s = tsMap.get(team.id + '|' + t.id) ?? 0
           sum += s
-          topics.push({ round: ri + 1, name: catOf(t)?.name ?? `Téma ${t.topic_order}`, icon: catOf(t)?.icon ?? '', score: s, max: t.max_points ?? 5 })
+          topics.push({ round: ri + 1, name: t.name || catOf(t)?.name || `Téma ${t.topic_order}`, icon: catOf(t)?.icon ?? '', score: s, max: t.max_points ?? 5 })
         }
         return sum
       })
@@ -175,7 +173,7 @@ function QuizResults({ quiz, cats }: { quiz: Quiz; cats: Map<string, Cat> }) {
       const max = t.max_points ?? 5
       const avg = scores.length ? scores.reduce((a, b) => a + b.s, 0) / scores.length : 0
       const best = Math.max(0, ...scores.map((x) => x.s))
-      return { key: t.id, round: ri + 1, name: catOf(t)?.name ?? `Téma ${t.topic_order}`, icon: catOf(t)?.icon ?? '', avg, max, best, winners: scores.filter((x) => x.s === best && best > 0).map((x) => x.name) }
+      return { key: t.id, round: ri + 1, cat: t.name ? catOf(t)?.name ?? '' : '', name: t.name || catOf(t)?.name || `Téma ${t.topic_order}`, icon: catOf(t)?.icon ?? '', avg, max, best, winners: scores.filter((x) => x.s === best && best > 0).map((x) => x.name) }
     }))
     const avgTotal = rows.length ? rows.reduce((a, b) => a + b.total, 0) / rows.length : 0
     const maxTotal = published.reduce((a, r) => a + ((topicsBy.get(r.id) ?? []).reduce((b, t) => b + (t.max_points ?? 5), 0) || 10), 0)
@@ -198,9 +196,8 @@ function QuizResults({ quiz, cats }: { quiz: Quiz; cats: Map<string, Cat> }) {
         {easiest && easiest !== hardest && <div><strong>{easiest.icon} {easiest.name}</strong><span>najľahšia téma · {pct(easiest.avg, easiest.max)} %</span></div>}
       </div>
 
-      <div className="card board-card">
-        <h2 className="center">Poradie · {quiz.title}</h2>
-        <p className="muted small center">Ťuknite na tím pre detail tém.</p>
+      <div className="board-card">
+        <p className="muted small">Ťuknite na tím pre detail tém.</p>
         <div className="table-wrap">
           <table className="board results-board">
             <thead><tr><th></th><th>Tím</th>{published.map((_, i) => <th key={i}>{i + 1}.</th>)}<th>Spolu</th></tr></thead>
@@ -238,6 +235,7 @@ function QuizResults({ quiz, cats }: { quiz: Quiz; cats: Map<string, Cat> }) {
           {topicStats.map((t) => (
             <div key={t.key} className="topic-card">
               <div className="topic-head"><span>{t.icon} {t.name}</span><span className="muted small">{t.round}. kolo</span></div>
+              {t.cat && <div className="muted small topic-cat-name">{t.cat}</div>}
               <Bar value={pct(t.avg, t.max)} />
               <div className="muted small">Priemer {fmt(Math.round(t.avg * 10) / 10)} / {t.max} · {pct(t.avg, t.max)} %</div>
               {t.winners.length > 0 && <div className="topic-best">🏆 {t.winners.length > 3 ? `${t.winners.length} tímov` : t.winners.join(', ')} ({fmt(t.best)})</div>}
@@ -310,6 +308,14 @@ function League({ quizzes, cats }: { quizzes: Quiz[]; cats: Map<string, Cat> }) 
     type Agg = { names: Map<string, number>; quizTotals: Map<string, number>; cats: Map<string, { icon: string; score: number; max: number }> }
     const agg = new Map<string, Agg>()
     const leagueCats = new Map<string, { icon: string; score: number; max: number; teams: Map<string, number> }>()
+    const quizTitle = new Map(quizzes.map((q) => [q.id, q.title.replace(/\.\d{4}.*$/, '.')]))
+    const catTopics = new Map<string, Set<string>>()
+    for (const t of data.topics) {
+      if (!t.name) continue
+      const cn = cats.get(t.category_id ?? '')?.name ?? 'Ostatné'
+      if (!catTopics.has(cn)) catTopics.set(cn, new Set())
+      catTopics.get(cn)!.add(`${t.name} (${quizTitle.get(roundQuiz.get(t.round_id) ?? '') ?? ''})`)
+    }
     const covered = new Set<string>()
     const entry = (team: Team) => {
       const k = norm(team.name) || team.name
@@ -354,7 +360,7 @@ function League({ quizzes, cats }: { quizzes: Quiz[]; cats: Map<string, Cat> }) 
       const n = Math.max(1, c.teams.size)
       return { name, icon: c.icon, avg: c.score / n, avgMax: c.max / n, p: pct(c.score, c.max), best, winners: [...c.teams.entries()].filter(([, v]) => v === best && best > 0).map(([k]) => nameOf.get(k) ?? k) }
     }).sort((a, b) => b.p - a.p)
-    return { rows, catStats }
+    return { rows, catStats, catTopics }
   }, [data, cats, quizzes])
 
   if (!calc) return <Spinner />
@@ -364,9 +370,8 @@ function League({ quizzes, cats }: { quizzes: Quiz[]; cats: Map<string, Cat> }) 
 
   return (
     <>
-      <div className="card board-card">
-        <h2 className="center">Liga · súčet bodov za sezónu</h2>
-        <p className="muted small center">{quizzes.length} {quizzes.length === 1 ? 'kvíz' : quizzes.length < 5 ? 'kvízy' : 'kvízov'} · ťuknite na tím pre jeho silné a slabé témy</p>
+      <div className="board-card">
+        <p className="muted small">Súčet bodov za sezónu · {quizzes.length} {quizzes.length === 1 ? 'kvíz' : quizzes.length < 5 ? 'kvízy' : 'kvízov'} · ťuknite na tím pre jeho silné a slabé témy</p>
         <div className="table-wrap">
           <table className="board results-board">
             <thead><tr><th></th><th>Tím</th><th>Účasti</th>{hasForm && <th>Forma</th>}<th>Spolu</th></tr></thead>
@@ -386,7 +391,7 @@ function League({ quizzes, cats }: { quizzes: Quiz[]; cats: Map<string, Cat> }) 
                     detail={items.length ? (
                       <div className="team-detail">
                         {items.map((c) => (
-                          <div key={c.name} className="cat-line"><span>{c.icon} {c.name}</span><Bar value={pct(c.score, c.max)} /><span className="muted small">{fmt(c.score)}/{c.max} · {pct(c.score, c.max)} %</span></div>
+                          <div key={c.name} className="cat-line"><Tip text={tipText(calc.catTopics, c.name)}>{c.icon} {c.name}</Tip><Bar value={pct(c.score, c.max)} /><span className="muted small">{fmt(c.score)}/{c.max} · {pct(c.score, c.max)} %</span></div>
                         ))}
                         <BestWorst items={items} />
                       </div>
@@ -403,7 +408,7 @@ function League({ quizzes, cats }: { quizzes: Quiz[]; cats: Map<string, Cat> }) 
         <div className="topic-grid">
           {calc.catStats.map((c) => (
             <div key={c.name} className="topic-card">
-              <div className="topic-head"><span>{c.icon} {c.name}</span><span className="muted small">{c.p} %</span></div>
+              <div className="topic-head"><Tip text={tipText(calc.catTopics, c.name)}>{c.icon} {c.name}</Tip><span className="muted small">{c.p} %</span></div>
               <Bar value={c.p} />
               <div className="muted small">Priemer na tím {fmt(Math.round(c.avg * 10) / 10)} / {fmt(Math.round(c.avgMax * 10) / 10)}</div>
               {c.winners.length > 0 && <div className="topic-best">🏆 {c.winners.length > 3 ? `${c.winners.length} tímov` : c.winners.join(', ')} ({fmt(c.best)})</div>}
@@ -413,4 +418,12 @@ function League({ quizzes, cats }: { quizzes: Quiz[]; cats: Map<string, Cat> }) 
       </>}
     </>
   )
+}
+
+const tipText = (m: Map<string, Set<string>>, cat: string) => [...(m.get(cat) ?? [])].join('\n')
+
+// jemná bublina s témami kategórie – myšou aj ťuknutím (focus)
+function Tip({ text, children }: { text: string; children: React.ReactNode }) {
+  if (!text) return <span>{children}</span>
+  return <span className="tip" tabIndex={0} data-tip={text} onClick={(e) => e.stopPropagation()}>{children}</span>
 }

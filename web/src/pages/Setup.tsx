@@ -11,7 +11,7 @@ type EventRow = { id: string; title: string; starts_at: string; quiz_id: string 
 type Season = { id: string; name: string; is_active: boolean }
 type Category = { id: string; name: string }
 type Answer = { id?: string; question_number: number; correct_answer: string; accept_alternatives: string[] | null; ai_note: string | null }
-type Topic = { id: string; topic_order: number; category_id: string | null; correct_answers: Answer[] }
+type Topic = { id: string; topic_order: number; category_id: string | null; name: string | null; correct_answers: Answer[] }
 type Round = { id: string; name: string; round_order: number; round_topics: Topic[] }
 
 export default function Setup() {
@@ -87,7 +87,7 @@ function QuizEditor({ quizId, event }: { quizId: string; event: EventRow }) {
       supabase.from('quizzes').select('title, season_id').eq('id', quizId).single(),
       supabase.from('seasons').select('id, name, is_active').order('start_date'),
       supabase.from('categories').select('id, name').order('name'),
-      supabase.from('rounds').select('id, name, round_order, round_topics(id, topic_order, category_id, correct_answers(id, question_number, correct_answer, accept_alternatives, ai_note))').eq('quiz_id', quizId).order('round_order'),
+      supabase.from('rounds').select('id, name, round_order, round_topics(id, topic_order, category_id, name, correct_answers(id, question_number, correct_answer, accept_alternatives, ai_note))').eq('quiz_id', quizId).order('round_order'),
       supabase.from('teams').select('id, name').eq('quiz_id', quizId).order('name'),
     ])
     setQuiz(q.data ?? undefined); setSeasons((s.data ?? []) as Season[]); setCats((c.data ?? []) as Category[])
@@ -168,6 +168,13 @@ function QuizEditor({ quizId, event }: { quizId: string; event: EventRow }) {
 
 function TopicEditor({ topic, cats, onNewCategory }: { topic: Topic; cats: Category[]; onNewCategory: () => Promise<string | null> }) {
   const [cat, setCat] = useState(topic.category_id ?? '')
+  const [name, setName] = useState(topic.name ?? '')
+  async function saveName() {
+    const v = name.trim() || null
+    if (v === (topic.name ?? null)) return
+    await supabase.from('round_topics').update({ name: v }).eq('id', topic.id)
+    topic.name = v
+  }
   const answers = [1, 2, 3, 4, 5].map((n) => topic.correct_answers.find((a) => a.question_number === n) ?? { question_number: n, correct_answer: '', accept_alternatives: null, ai_note: null })
   async function changeCat(v: string) {
     if (v === '__new') { const id = await onNewCategory(); if (!id) return; v = id }
@@ -183,6 +190,9 @@ function TopicEditor({ topic, cats, onNewCategory }: { topic: Topic; cats: Categ
           {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           <option value="__new">➕ Nová téma…</option>
         </select>
+      </label>
+      <label className="topic-cat">Názov témy <span className="hint">(vo výsledkoch, napr. Vikingovia)</span>
+        <input value={name} placeholder="nepovinné" onChange={(e) => setName(e.target.value)} onBlur={saveName} />
       </label>
       {answers.map((a) => <AnswerRow key={a.question_number} topicId={topic.id} answer={a} label={offset + a.question_number} />)}
     </div>
