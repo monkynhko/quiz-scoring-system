@@ -470,7 +470,7 @@ export function ManualScores({ round, teams, onChanged }: { round: Round; teams:
 // Odpovede tímov na jednu otázku zoskupené podľa toho, čo napísali (bez ohľadu na veľké písmená, medzery a diakritiku).
 // Body pre celú skupinu sa nastavia naraz a databáza prepočíta súčty.
 
-const answerKey = (t: string | null) => (t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
+const answerKey = (t: string | null) => (t ?? '').replace(/\(prečiarknuté:[^)]*\)/gi, '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
 
 type CA = { question_number: number; correct_answer: string; accept_alternatives: string[] | null }
 type RTopic = { id: string; topic_order: number; name: string | null; correct_answers: CA[] }
