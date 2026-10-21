@@ -3,11 +3,12 @@ import { supabase } from '../lib/supabase'
 import { time, roundLabel, roundOf } from '../lib/format'
 import { Spinner } from '../components'
 import { AdminGate } from '../AdminGate'
+import { ResultsPostModal } from '../ResultsPostModal'
 
 // Opravovanie: AI hodnotí hárky na serveri, sem prichádzajú iba pochybné odpovede.
 // Každý opravovateľ dostane inú odpoveď (zámok v databáze), súčty počíta databáza.
 
-type Quiz = { id: string; title: string; created_at: string; submit_open: boolean; submit_round_id: string | null; submit_closes_at: string | null }
+type Quiz = { id: string; title: string; event_id: string | null; created_at: string; submit_open: boolean; submit_round_id: string | null; submit_closes_at: string | null }
 type Round = { id: string; name: string; round_order: number; published_at: string | null; kind: 'sheet' | 'manual' }
 type Team = { id: string; name: string }
 type Sub = { id: string; team_id: string; status: string; ai_status: string; ai_error: string | null; submitted_at: string; photo_path: string }
@@ -25,9 +26,10 @@ function GradingScreen() {
   const [quizId, setQuizId] = useState<string>()
   const [rounds, setRounds] = useState<Round[]>([])
   const [roundId, setRoundId] = useState<string>()
+  const [post, setPost] = useState(false)
 
   const loadQuizzes = useCallback(async () => {
-    const { data } = await supabase.from('quizzes').select('id, title, created_at, submit_open, submit_round_id, submit_closes_at').order('created_at', { ascending: false }).limit(30)
+    const { data } = await supabase.from('quizzes').select('id, title, event_id, created_at, submit_open, submit_round_id, submit_closes_at').order('created_at', { ascending: false }).limit(30)
     setQuizzes(data as Quiz[])
     setQuizId((cur) => cur ?? (data as Quiz[] | null)?.[0]?.id)
   }, [])
@@ -52,6 +54,7 @@ function GradingScreen() {
         </select>
         <span className="cta-row">
           <a className="button button-small button-ghost" href="/priprava">Príprava kvízu</a>
+          {quiz && !quiz.created_at.startsWith('2000') && <button className="button button-small button-ghost" onClick={() => setPost(true)}>🏆 Výsledky na FB/IG</button>}
           <a className="button button-small button-ghost" href={quiz?.created_at.startsWith('2000') ? `/projektor?kviz=${quiz.id}` : '/projektor'} target="_blank">Projektor ↗</a>
         </span>
       </div>
@@ -62,6 +65,7 @@ function GradingScreen() {
           </button>
         ))}
       </nav>
+      {post && quiz && <ResultsPostModal quiz={quiz} onClose={() => setPost(false)} />}
       {quiz && round ? <RoundPanel key={round.id} quiz={quiz} round={round} onQuizChanged={loadQuizzes} onRoundChanged={loadRounds} /> : <p className="card muted center">Kvíz nemá kolá. Nastavte ich v Príprave kvízu.</p>}
     </div>
   )
