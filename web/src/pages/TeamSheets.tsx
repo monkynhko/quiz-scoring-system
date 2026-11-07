@@ -21,18 +21,37 @@ export default function TeamSheets() {
   const [open, setOpen] = useState<string>()
   const [zoom, setZoom] = useState<string>()
   const [share, setShare] = useState(false)
+  const [updatedAt, setUpdatedAt] = useState<Date>()
+  const [refreshing, setRefreshing] = useState(false)
+  const [offline, setOffline] = useState(false)
 
   const load = useCallback(async () => {
+    setRefreshing(true)
     const { data, error } = await supabase.functions.invoke('team-sheets', { body: { token } })
-    if (error) { setData((d) => (d === undefined ? null : d)); return }
-    setData(data as Data)
+    setRefreshing(false)
+    if (error) { setOffline(true); setData((d) => (d === undefined ? null : d)); return }
+    setOffline(false); setUpdatedAt(new Date()); setData(data as Data)
   }, [token])
 
   useEffect(() => {
     load()
-    const t = setInterval(load, 20000) // nové zverejnené kolá a opravy sa ukážu samy
-    return () => clearInterval(t)
-  }, [load])
+    // kým je karta viditeľná, kontrola každých 15 s (mobily časovače na pozadí pozastavujú)
+    const t = setInterval(() => { if (document.visibilityState === 'visible') load() }, 15000)
+    // po návrate na kartu / do aplikácie hneď
+    const onVisible = () => { if (document.visibilityState === 'visible') load() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    window.addEventListener('online', onVisible)
+    // okamžite po zverejnení / skrytí kola v administrácii (s náhodným oneskorením do 2 s, aby sa 40 tímov nepýtalo naraz)
+    let jitter: ReturnType<typeof setTimeout>
+    const ch = supabase.channel(`team-rounds-${token}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rounds' }, () => { clearTimeout(jitter); jitter = setTimeout(load, Math.random() * 2000) })
+      .subscribe()
+    return () => {
+      clearInterval(t); clearTimeout(jitter); supabase.removeChannel(ch)
+      document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('focus', onVisible); window.removeEventListener('online', onVisible)
+    }
+  }, [load, token])
 
   // naposledy zverejnené kolo otvoríme automaticky
   useEffect(() => {
@@ -58,7 +77,11 @@ export default function TeamSheets() {
         <div className="cta-row center-row">
           <button className="button button-small button-ghost" onClick={shareLink}>📤 Zdieľať s tímom</button>
           <a className="button button-small button-ghost" href="/live">📊 Priebežné poradie</a>
+          <button className="button button-small" onClick={load} disabled={refreshing}>{refreshing ? '⏳ Obnovujem…' : '🔄 Obnoviť'}</button>
         </div>
+        <p className={`small ${offline ? 'warn' : 'muted'}`}>
+          {offline ? '⚠ Bez spojenia – zobrazené údaje z ' : 'Aktualizované '}{updatedAt ? updatedAt.toLocaleTimeString('sk-SK') : '…'}
+        </p>
         {share && (
           <div className="share-box">
             <QR value={url} size={180} label="Odkaz na hárky tímu" />
@@ -116,7 +139,7 @@ export default function TeamSheets() {
           </article>
         ))}
       </div>
-      <p className="muted small center">Stránka sa obnovuje sama – nové kolá sa ukážu po zverejnení výsledkov.</p>
+      <p className="muted small center">Nové kolá sa ukážu hneď po zverejnení výsledkov. Ak nie, stlačte „Obnoviť“.</p>
       {zoom && <div className="modal-overlay" onClick={() => setZoom(undefined)}><img className="zoom-photo" src={zoom} alt="Hárok" /></div>}
     </div>
   )
