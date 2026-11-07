@@ -29,33 +29,35 @@ Deno.serve(async (req) => {
   const latest = new Map<string, { id: string; photo_path: string; submitted_at: string; ai_status: string }>()
   for (const s of subs ?? []) if (!latest.has(s.round_id)) latest.set(s.round_id, s)
 
-  const out = []
-  for (const r of rounds ?? []) {
+  // kolá spracujeme súbežne (každé kolo = 2 dotazy + podpis fotky), poradie zachová Promise.all
+  const out = await Promise.all((rounds ?? []).map(async (r) => {
     const sub = latest.get(r.id)
     const base = { id: r.id, name: r.name, order: r.round_order, kind: r.kind, submitted: !!sub, submitted_at: sub?.submitted_at ?? null }
-    if (!r.published_at) { out.push({ ...base, published: false }); continue }
+    if (!r.published_at) return { ...base, published: false }
 
     type RT = { id: string; topic_order: number; name: string | null; max_points: number | null; categories: { name: string } | null; correct_answers: { question_number: number; correct_answer: string }[] }
     const topics = ((r.round_topics ?? []) as unknown as RT[]).sort((a, b) => a.topic_order - b.topic_order)
-    const { data: ts } = await db.from('topic_scores').select('round_topic_id, score').eq('team_id', team.id).in('round_topic_id', topics.map((t) => t.id))
+    const [{ data: ts }, evRes, signed] = await Promise.all([
+      db.from('topic_scores').select('round_topic_id, score').eq('team_id', team.id).in('round_topic_id', topics.map((t) => t.id)),
+      sub ? db.from('ai_evaluations').select('question_number, ocr_text, points, final_points').eq('submission_id', sub.id).order('question_number') : Promise.resolve({ data: null }),
+      sub ? db.storage.from('answer-sheets').createSignedUrl(sub.photo_path, 60 * 60) : Promise.resolve({ data: null }),
+    ])
     const topicScore = new Map((ts ?? []).map((x) => [x.round_topic_id, Number(x.score)]))
 
     let answers: { n: number; written: string; correct: string; points: number | null }[] = []
     let photo: string | null = null
     if (sub) {
-      const { data: evs } = await db.from('ai_evaluations').select('question_number, ocr_text, points, final_points').eq('submission_id', sub.id).order('question_number')
       const correct = new Map<number, string>()
       for (const t of topics) for (const c of t.correct_answers ?? []) correct.set((t.topic_order - 1) * 5 + c.question_number, c.correct_answer)
-      answers = (evs ?? []).map((e) => ({ n: e.question_number, written: e.ocr_text ?? '', correct: correct.get(e.question_number) ?? '', points: e.final_points ?? e.points }))
-      const signed = await db.storage.from('answer-sheets').createSignedUrl(sub.photo_path, 60 * 60)
+      answers = (evRes.data ?? []).map((e) => ({ n: e.question_number, written: e.ocr_text ?? '', correct: correct.get(e.question_number) ?? '', points: e.final_points ?? e.points }))
       photo = signed.data?.signedUrl ?? null
     }
-    out.push({
+    return {
       ...base, published: true, photo, answers,
       score: (scores ?? []).find((s) => s.round_id === r.id)?.score ?? null,
       topics: topics.map((t) => ({ order: t.topic_order, name: t.name || t.categories?.name || `Téma ${t.topic_order}`, max: t.max_points ?? 5, score: topicScore.get(t.id) ?? null })),
-    })
-  }
+    }
+  }))
   const total = (scores ?? []).filter((s) => out.some((r) => r.id === s.round_id && r.published)).reduce((a, s) => a + Number(s.score), 0)
   return json({ team: team.name, quiz: (team.quizzes as unknown as { title: string } | null)?.title ?? '', total, rounds: out })
 })
