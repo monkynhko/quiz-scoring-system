@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Spinner, QR } from '../components'
@@ -24,10 +24,13 @@ export default function TeamSheets() {
   const [updatedAt, setUpdatedAt] = useState<Date>()
   const [refreshing, setRefreshing] = useState(false)
   const [offline, setOffline] = useState(false)
+  const seq = useRef(0) // poradie dotazov: pomalšia staršia odpoveď nesmie prepísať novšiu
 
   const load = useCallback(async () => {
+    const my = ++seq.current
     setRefreshing(true)
     const { data, error } = await supabase.functions.invoke('team-sheets', { body: { token } })
+    if (my !== seq.current) return
     setRefreshing(false)
     if (error) { setOffline(true); setData((d) => (d === undefined ? null : d)); return }
     setOffline(false); setUpdatedAt(new Date()); setData(data as Data)
@@ -35,17 +38,17 @@ export default function TeamSheets() {
 
   useEffect(() => {
     load()
-    // kým je karta viditeľná, kontrola každých 15 s (mobily časovače na pozadí pozastavujú)
-    const t = setInterval(() => { if (document.visibilityState === 'visible') load() }, 15000)
+    // kým je karta viditeľná, kontrola každých 30 s (zverejnenie príde hneď cez realtime) (mobily časovače na pozadí pozastavujú)
+    const t = setInterval(() => { if (document.visibilityState === 'visible') load() }, 30000)
     // po návrate na kartu / do aplikácie hneď
     const onVisible = () => { if (document.visibilityState === 'visible') load() }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onVisible)
     window.addEventListener('online', onVisible)
-    // okamžite po zverejnení / skrytí kola v administrácii (s náhodným oneskorením do 2 s, aby sa 40 tímov nepýtalo naraz)
+    // okamžite po zverejnení / skrytí kola v administrácii (s náhodným oneskorením do 5 s, aby sa tímy nepýtali naraz)
     let jitter: ReturnType<typeof setTimeout>
     const ch = supabase.channel(`team-rounds-${token}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rounds' }, () => { clearTimeout(jitter); jitter = setTimeout(load, Math.random() * 2000) })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rounds' }, () => { clearTimeout(jitter); jitter = setTimeout(load, Math.random() * 5000) })
       .subscribe()
     return () => {
       clearInterval(t); clearTimeout(jitter); supabase.removeChannel(ch)
