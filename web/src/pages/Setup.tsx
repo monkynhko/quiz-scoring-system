@@ -12,7 +12,7 @@ type Season = { id: string; name: string; is_active: boolean }
 type Category = { id: string; name: string }
 type Answer = { id?: string; question_number: number; correct_answer: string; accept_alternatives: string[] | null; ai_note: string | null }
 type Topic = { id: string; topic_order: number; category_id: string | null; name: string | null; max_points: number | null; correct_answers: Answer[] }
-type Round = { id: string; name: string; round_order: number; kind: 'sheet' | 'manual'; round_topics: Topic[] }
+type Round = { id: string; name: string; round_order: number; kind: 'sheet' | 'manual'; ai_enabled?: boolean; round_topics: Topic[] }
 
 export default function Setup() {
   return <AdminGate>{() => <SetupScreen />}</AdminGate>
@@ -87,7 +87,7 @@ function QuizEditor({ quizId, event }: { quizId: string; event: EventRow }) {
       supabase.from('quizzes').select('title, season_id, allow_new_teams, created_at').eq('id', quizId).single(),
       supabase.from('seasons').select('id, name, is_active').order('start_date'),
       supabase.from('categories').select('id, name').order('name'),
-      supabase.from('rounds').select('id, name, round_order, kind, round_topics(id, topic_order, category_id, name, max_points, correct_answers(id, question_number, correct_answer, accept_alternatives, ai_note))').eq('quiz_id', quizId).order('round_order'),
+      supabase.from('rounds').select('id, name, round_order, kind, ai_enabled, round_topics(id, topic_order, category_id, name, max_points, correct_answers(id, question_number, correct_answer, accept_alternatives, ai_note))').eq('quiz_id', quizId).order('round_order'),
       supabase.from('teams').select('id, name').eq('quiz_id', quizId).order('name'),
     ])
     setQuiz(q.data ?? undefined); setSeasons((s.data ?? []) as Season[]); setCats((c.data ?? []) as Category[])
@@ -168,9 +168,9 @@ function QuizEditor({ quizId, event }: { quizId: string; event: EventRow }) {
     await supabase.from('rounds').update({ name: v }).eq('id', r.id)
     r.name = v
   }
-  async function setKind(r: Round, kind: 'sheet' | 'manual') {
-    if (kind === 'sheet' && r.round_topics.length > 2) { alert('Kolo s hárkom môže mať najviac 2 témy (hárok má 10 riadkov). Najprv zmažte témy navyše.'); return }
-    await supabase.from('rounds').update({ kind }).eq('id', r.id)
+  async function setKind(r: Round, kind: 'sheet' | 'manual' | 'photo') {
+    if (kind !== 'manual' && r.round_topics.length > 2) { alert('Kolo s hárkom môže mať najviac 2 témy (hárok má 10 riadkov). Najprv zmažte témy navyše.'); return }
+    await supabase.from('rounds').update(kind === 'photo' ? { kind: 'sheet', ai_enabled: false } : { kind, ai_enabled: true }).eq('id', r.id)
     load()
   }
   async function addTopic(r: Round) {
@@ -224,8 +224,9 @@ function QuizEditor({ quizId, event }: { quizId: string; event: EventRow }) {
         <article key={r.id} className={`card round-editor ${r.kind === 'manual' ? 'manual' : ''}`}>
           <div className="round-head">
             <input className="round-name" defaultValue={r.name} aria-label="Názov kola" onBlur={(e) => renameRound(r, e.target.value)} />
-            <select value={r.kind} onChange={(e) => setKind(r, e.target.value as 'sheet' | 'manual')} aria-label="Typ kola">
+            <select value={r.kind === 'manual' ? 'manual' : r.ai_enabled === false ? 'photo' : 'sheet'} onChange={(e) => setKind(r, e.target.value as 'sheet' | 'manual' | 'photo')} aria-label="Typ kola">
               <option value="sheet">📷 Hárok – opravuje AI</option>
+              <option value="photo">📷 Hárok – bez AI, body ručne</option>
               <option value="manual">✍️ Prestávkové – ručné body</option>
             </select>
             <span className="round-tools">

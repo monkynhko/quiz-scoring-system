@@ -9,7 +9,7 @@ import { ResultsPostModal } from '../ResultsPostModal'
 // Každý opravovateľ dostane inú odpoveď (zámok v databáze), súčty počíta databáza.
 
 type Quiz = { id: string; title: string; event_id: string | null; created_at: string; submit_open: boolean; submit_round_id: string | null; submit_closes_at: string | null }
-type Round = { id: string; name: string; round_order: number; published_at: string | null; kind: 'sheet' | 'manual' }
+type Round = { id: string; name: string; round_order: number; published_at: string | null; kind: 'sheet' | 'manual'; ai_enabled?: boolean }
 type Team = { id: string; name: string }
 type Sub = { id: string; team_id: string; status: string; ai_status: string; ai_error: string | null; submitted_at: string; photo_path: string }
 type Ev = { id: string; submission_id: string; question_number: number; ocr_text: string | null; correct_answer: string | null; points: number | null; final_points: number | null; needs_review: boolean; review_reason: string | null; reasoning: string | null; box: number[] | null }
@@ -37,7 +37,7 @@ function GradingScreen() {
 
   const loadRounds = useCallback(async () => {
     if (!quizId) return
-    const { data } = await supabase.from('rounds').select('id, name, round_order, published_at, kind').eq('quiz_id', quizId).order('round_order')
+    const { data } = await supabase.from('rounds').select('id, name, round_order, published_at, kind, ai_enabled').eq('quiz_id', quizId).order('round_order')
     setRounds(data as Round[])
     setRoundId((cur) => (data as Round[]).some((r) => r.id === cur) ? cur : (data as Round[])[0]?.id)
   }, [quizId])
@@ -61,7 +61,7 @@ function GradingScreen() {
       <nav className="round-tabs">
         {rounds.map((r) => (
           <button key={r.id} className={r.id === roundId ? 'active' : ''} onClick={() => setRoundId(r.id)}>
-            {roundLabel(r.name)} {r.kind === 'manual' ? '✍️' : ''}{r.published_at ? '📢' : ''}
+            {roundLabel(r.name)} {r.kind === 'manual' || r.ai_enabled === false ? '✍️' : ''}{r.published_at ? '📢' : ''}
           </button>
         ))}
       </nav>
@@ -78,7 +78,8 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
   const [scores, setScores] = useState<Record<string, number>>({})
   const [reviewing, setReviewing] = useState(false)
   const [sheet, setSheet] = useState<Sub>()
-  const [view, setView] = useState<'ai' | 'manual'>(round.kind === 'manual' ? 'manual' : 'ai')
+  const noAi = round.ai_enabled === false   // kolo bez AI: hárky sa iba odovzdajú, body zadávame ručne
+  const [view, setView] = useState<'ai' | 'manual'>(round.kind === 'manual' || noAi ? 'manual' : 'ai')
   const [q, setQ] = useState('')
   const [regrade, setRegrade] = useState(false)
 
@@ -126,16 +127,20 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
 
       <div className="grading-stats">
         <div><strong>{subs.length}</strong>/{teams.length}<span>odovzdaných</span></div>
-        <div><strong>{aiDone}</strong>{aiBusy ? <em> +{aiBusy}⏳</em> : null}<span>vyhodnotila AI</span></div>
-        <div className={openReviews ? 'warn-box' : ''}><strong>{openReviews}</strong><span>na kontrolu</span></div>
+        {noAi
+          ? <div><strong>✍️</strong><span>bez AI, body ručne</span></div>
+          : <>
+              <div><strong>{aiDone}</strong>{aiBusy ? <em> +{aiBusy}⏳</em> : null}<span>vyhodnotila AI</span></div>
+              <div className={openReviews ? 'warn-box' : ''}><strong>{openReviews}</strong><span>na kontrolu</span></div>
+            </>}
         <div><strong>{round.published_at ? '📢' : '–'}</strong><span>{round.published_at ? `zverejnené ${time(round.published_at)}` : 'nezverejnené'}</span></div>
       </div>
 
       <div className="cta-row grading-actions">
-        <button className={`button ${view === 'ai' ? '' : 'button-ghost'}`} onClick={() => setView('ai')}>📷 Hárky a AI</button>
+        <button className={`button ${view === 'ai' ? '' : 'button-ghost'}`} onClick={() => setView('ai')}>📷 {noAi ? 'Hárky' : 'Hárky a AI'}</button>
         <button className={`button ${view === 'manual' ? '' : 'button-ghost'}`} onClick={() => setView('manual')}>✍️ Ručné body</button>
-        <button className="button" disabled={!openReviews} onClick={() => setReviewing(true)}>✅ Kontrolovať ({openReviews})</button>
-        <button className="button button-ghost" disabled={!evs.length} onClick={() => setRegrade(true)}>🔁 Prehodnotiť otázku</button>
+        {!noAi && <button className="button" disabled={!openReviews} onClick={() => setReviewing(true)}>✅ Kontrolovať ({openReviews})</button>}
+        {!noAi && <button className="button button-ghost" disabled={!evs.length} onClick={() => setRegrade(true)}>🔁 Prehodnotiť otázku</button>}
         <PublishButton round={round} openReviews={openReviews} aiBusy={aiBusy} missing={teams.length - subs.length} onChanged={onRoundChanged} />
       </div>
 
@@ -144,7 +149,7 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
         {q && <button className="link" onClick={() => setQ('')}>zrušiť</button>}
       </div>
 
-      {view === 'manual' && <ManualScores round={round} teams={shown} onChanged={load} />}
+      {view === 'manual' && <ManualScores round={round} teams={shown} onChanged={load} hasSheet={(id) => !!subByTeam[id]} onOpenSheet={(id) => { const x = subByTeam[id]; if (x) setSheet(x) }} />}
 
       {view === 'ai' && aiFailed.length > 0 && (
         <p className="alert">AI zlyhala pri {aiFailed.length} hárkoch – skúša to znova automaticky. Posledná chyba: {aiFailed[0].ai_error}</p>
@@ -155,9 +160,9 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
         {shown.map((t) => {
           const s = subByTeam[t.id]
           const pending = s ? evs.filter((e) => e.submission_id === s.id && e.needs_review && e.final_points == null).length : 0
-          const state = !s ? 'none' : s.ai_status !== 'completed' ? (s.ai_status === 'failed' ? 'failed' : 'ai') : pending ? 'review' : 'done'
+          const state = !s ? 'none' : s.ai_status === 'skipped' ? 'photo' : s.ai_status !== 'completed' ? (s.ai_status === 'failed' ? 'failed' : 'ai') : pending ? 'review' : 'done'
           return (
-            <button key={t.id} className={`team-chip st-${state}`} disabled={!s} onClick={() => s && setSheet(s)}>
+            <button key={t.id} className={`team-chip st-${state === 'photo' ? 'done' : state}`} disabled={!s} onClick={() => s && setSheet(s)}>
               <span className="team-chip-name">{t.name}</span>
               <span className="team-chip-state">
                 {state === 'none' && 'neodovzdali'}
@@ -165,6 +170,7 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
                 {state === 'failed' && '⚠ AI chyba'}
                 {state === 'review' && `${fmtPts(scores[t.id])} b · ${pending} na kontrolu`}
                 {state === 'done' && `${fmtPts(scores[t.id])} b ✓`}
+                {state === 'photo' && `📷 odovzdané · ${fmtPts(scores[t.id])} b`}
               </span>
             </button>
           )
@@ -173,7 +179,7 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
 
       {regrade && <RegradeModal round={round} teams={teams} subs={subs} evs={evs} onChanged={load} onClose={() => { setRegrade(false); load() }} />}
       {reviewing && <ReviewQueue roundId={round.id} onClose={() => { setReviewing(false); load() }} />}
-      {sheet && <SheetModal sub={sheet} team={teams.find((t) => t.id === sheet.team_id)!} evs={evs.filter((e) => e.submission_id === sheet.id)} onClose={() => { setSheet(undefined); load() }} />}
+      {sheet && <SheetModal noAi={noAi} sub={sheet} team={teams.find((t) => t.id === sheet.team_id)!} evs={evs.filter((e) => e.submission_id === sheet.id)} onClose={() => { setSheet(undefined); load() }} />}
     </>
   )
 }
@@ -332,7 +338,7 @@ function ReviewQueue({ roundId, onClose }: { roundId: string; onClose: () => voi
   )
 }
 
-function SheetModal({ sub, team, evs, onClose }: { sub: Sub; team: Team; evs: Ev[]; onClose: () => void }) {
+function SheetModal({ sub, team, evs, onClose, noAi }: { sub: Sub; team: Team; evs: Ev[]; onClose: () => void; noAi?: boolean }) {
   const [url, setUrl] = useState('')
   const [local, setLocal] = useState<Record<string, number>>({})
   useEffect(() => { signedUrl(sub.photo_path).then(setUrl) }, [sub.photo_path])
@@ -352,7 +358,8 @@ function SheetModal({ sub, team, evs, onClose }: { sub: Sub; team: Team; evs: Ev
         </div>
         <div className="sheet-body">
           {url && <a href={url} target="_blank" rel="noreferrer"><img className="sheet-photo" src={url} alt="Hárok" /></a>}
-          <table className="regs">
+          {noAi && <p className="muted">Kolo bez AI: body za témy zadajte v „Ručné body“.</p>}
+          {!noAi && <table className="regs">
             <thead><tr><th>#</th><th>Prečítané / správne</th><th>Body</th></tr></thead>
             <tbody>
               {sorted.map((e) => {
@@ -370,8 +377,8 @@ function SheetModal({ sub, team, evs, onClose }: { sub: Sub; team: Team; evs: Ev
                 )
               })}
             </tbody>
-          </table>
-          {sorted.length === 0 && <p className="muted">AI tento hárok ešte nevyhodnotila.</p>}
+          </table>}
+          {!noAi && sorted.length === 0 && <p className="muted">AI tento hárok ešte nevyhodnotila.</p>}
         </div>
       </div>
     </div>
@@ -387,7 +394,7 @@ const parsePts = (v: string): number | null | 'bad' => {
   return Number.isFinite(n) && n >= 0 && Number.isInteger(n * 2) ? n : 'bad'
 }
 
-export function ManualScores({ round, teams, onChanged }: { round: Round; teams: Team[]; onChanged: () => void }) {
+export function ManualScores({ round, teams, onChanged, hasSheet, onOpenSheet }: { round: Round; teams: Team[]; onChanged: () => void; hasSheet?: (teamId: string) => boolean; onOpenSheet?: (teamId: string) => void }) {
   const [topics, setTopics] = useState<RT[]>([])
   const [current, setCurrent] = useState<Record<string, number>>({})   // `${team}:${topic}` → aktuálne body (ručné alebo AI)
   const [manual, setManual] = useState<Record<string, number>>({})
@@ -429,7 +436,9 @@ export function ManualScores({ round, teams, onChanged }: { round: Round; teams:
     <article className="card manual-scores">
       <p className="hint">
         Napíšte body za tému (napr. <strong>3</strong>, <strong>3,5</strong> alebo <strong>3½</strong>) a stlačte Enter alebo prejdite ďalej (Tab).
-        <strong> Ručné body majú vždy prednosť pred AI.</strong> Vymazaním poľa sa téma vráti k výsledku AI. Sivé číslo = aktuálny výsledok AI.
+        {round.ai_enabled === false
+          ? <strong> Kolo je bez AI: fotku hárku otvoríte tlačidlom 📷 pri tíme.</strong>
+          : <><strong> Ručné body majú vždy prednosť pred AI.</strong> Vymazaním poľa sa téma vráti k výsledku AI. Sivé číslo = aktuálny výsledok AI.</>}
       </p>
       <div className="table-wrap">
         <table className="regs">
@@ -440,7 +449,7 @@ export function ManualScores({ round, teams, onChanged }: { round: Round; teams:
               const hasAny = topics.some((t) => `${team.id}:${t.id}` in current)
               return (
                 <tr key={team.id}>
-                  <td><strong>{team.name}</strong></td>
+                  <td><strong>{team.name}</strong>{onOpenSheet && hasSheet?.(team.id) && <button className="button button-small button-ghost" style={{ marginLeft: 8 }} onClick={() => onOpenSheet(team.id)} title="Otvoriť fotku hárku">📷</button>}</td>
                   {topics.map((t) => {
                     const key = `${team.id}:${t.id}`
                     const isManual = key in manual
