@@ -24,7 +24,14 @@ function SetupScreen() {
   const load = useCallback(async () => {
     const { data } = await supabase.from('events').select('id, title, starts_at, quiz_id, is_public').order('starts_at', { ascending: false })
     setEvents(data as EventRow[])
-    setEventId((cur) => cur ?? (data as EventRow[] | null)?.find((e) => new Date(e.starts_at).getTime() > Date.now() - 12 * 3600e3)?.id ?? data?.[0]?.id)
+    setEventId((cur) => {
+      if (cur) return cur
+      // predvolene najbližší nadchádzajúci verejný kvíz (nie testovací), inak najnovší verejný, inak prvý
+      const list = (data as EventRow[] | null) ?? []
+      const pub = list.filter((e) => e.is_public)
+      const upcoming = pub.filter((e) => new Date(e.starts_at).getTime() > Date.now() - 12 * 3600e3).sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0]
+      return (upcoming ?? pub[0] ?? list[0])?.id
+    })
   }, [])
   useEffect(() => { load() }, [load])
   const ev = events?.find((e) => e.id === eventId)
