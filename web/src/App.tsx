@@ -25,6 +25,7 @@ const Grading = lazy(() => import('./pages/Grading'))
 const Setup = lazy(() => import('./pages/Setup'))
 const Submit = lazy(() => import('./pages/Submit'))
 const Projector = lazy(() => import('./pages/Projector'))
+const SubmitBoard = lazy(() => import('./pages/SubmitBoard'))
 const Results = lazy(() => import('./pages/Results'))
 const TeamSheets = lazy(() => import('./pages/TeamSheets'))
 
@@ -35,6 +36,7 @@ export default function App() {
       <Routes>
         {/* projektor bez hlavičky a pätičky – na celé plátno */}
         <Route path="/projektor" element={<Projector />} />
+        <Route path="/odovzdane" element={<SubmitBoard />} />
         <Route path="*" element={<Site />} />
       </Routes>
       </Suspense>

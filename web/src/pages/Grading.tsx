@@ -55,6 +55,7 @@ function GradingScreen() {
         <span className="cta-row">
           <a className="button button-small button-ghost" href="/priprava">Príprava kvízu</a>
           {quiz && !quiz.created_at.startsWith('2000') && <button className="button button-small button-ghost" onClick={() => setPost(true)}>🏆 Výsledky na FB/IG</button>}
+          <a className="button button-small button-ghost" href={quiz?.created_at.startsWith('2000') ? `/odovzdane?kviz=${quiz.id}` : '/odovzdane'} target="_blank">Kto odovzdal ↗</a>
           <a className="button button-small button-ghost" href={quiz?.created_at.startsWith('2000') ? `/projektor?kviz=${quiz.id}` : '/projektor'} target="_blank">Projektor ↗</a>
         </span>
       </div>
@@ -74,6 +75,7 @@ function GradingScreen() {
 function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz; round: Round; onQuizChanged: () => void; onRoundChanged: () => void }) {
   const [teams, setTeams] = useState<Team[]>([])
   const [subs, setSubs] = useState<Sub[]>([])
+  const [older, setOlder] = useState<Record<string, string[]>>({})   // team_id → časy nahradených (starších) odovzdaní
   const [evs, setEvs] = useState<Ev[]>([])
   const [scores, setScores] = useState<Record<string, number>>({})
   const [reviewing, setReviewing] = useState(false)
@@ -84,11 +86,15 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
   const [regrade, setRegrade] = useState(false)
 
   const load = useCallback(async () => {
-    const [t, s, sc] = await Promise.all([
+    const [t, s, sc, rp] = await Promise.all([
       supabase.from('teams').select('id, name').eq('quiz_id', quiz.id).order('name'),
       supabase.from('answer_submissions').select('id, team_id, status, ai_status, ai_error, submitted_at, photo_path').eq('round_id', round.id).in('status', ['pending', 'reviewed']),
       supabase.from('scores').select('team_id, score').eq('round_id', round.id),
+      supabase.from('answer_submissions').select('team_id, submitted_at').eq('round_id', round.id).eq('status', 'replaced').order('submitted_at'),
     ])
+    const old: Record<string, string[]> = {}
+    for (const x of (rp.data ?? []) as { team_id: string; submitted_at: string }[]) (old[x.team_id] ??= []).push(x.submitted_at)
+    setOlder(old)
     const subList = (s.data ?? []) as Sub[]
     setTeams((t.data ?? []) as Team[])
     setSubs(subList)
@@ -136,6 +142,10 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
         <div><strong>{round.published_at ? '📢' : '–'}</strong><span>{round.published_at ? `zverejnené ${time(round.published_at)}` : 'nezverejnené'}</span></div>
       </div>
 
+      {Object.keys(older).length > 0 && (
+        <p className="dup-note">↻ Viackrát odovzdali: {teams.filter((t) => older[t.id]).map((t) => `${t.name} (${older[t.id].length + 1}×, platí posledný o ${subByTeam[t.id] ? time(subByTeam[t.id].submitted_at) : '–'})`).join(' · ')}</p>
+      )}
+
       <div className="cta-row grading-actions">
         <button className={`button ${view === 'ai' ? '' : 'button-ghost'}`} onClick={() => setView('ai')}>📷 {noAi ? 'Hárky' : 'Hárky a AI'}</button>
         <button className={`button ${view === 'manual' ? '' : 'button-ghost'}`} onClick={() => setView('manual')}>✍️ Ručné body</button>
@@ -172,6 +182,7 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
                 {state === 'done' && `${fmtPts(scores[t.id])} b ✓`}
                 {state === 'photo' && `📷 odovzdané · ${fmtPts(scores[t.id])} b`}
               </span>
+              {older[t.id] && <span className="team-chip-note">↻ odovzdané {older[t.id].length + 1}× · platí o {time(s.submitted_at)}</span>}
             </button>
           )
         })}
@@ -179,7 +190,7 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
 
       {regrade && <RegradeModal round={round} teams={teams} subs={subs} evs={evs} onChanged={load} onClose={() => { setRegrade(false); load() }} />}
       {reviewing && <ReviewQueue roundId={round.id} onClose={() => { setReviewing(false); load() }} />}
-      {sheet && <SheetModal noAi={noAi} sub={sheet} team={teams.find((t) => t.id === sheet.team_id)!} evs={evs.filter((e) => e.submission_id === sheet.id)} onClose={() => { setSheet(undefined); load() }} />}
+      {sheet && <SheetModal noAi={noAi} older={older[sheet.team_id]} sub={sheet} team={teams.find((t) => t.id === sheet.team_id)!} evs={evs.filter((e) => e.submission_id === sheet.id)} onClose={() => { setSheet(undefined); load() }} />}
     </>
   )
 }
@@ -339,7 +350,7 @@ function ReviewQueue({ roundId, onClose }: { roundId: string; onClose: () => voi
   )
 }
 
-function SheetModal({ sub, team, evs, onClose, noAi }: { sub: Sub; team: Team; evs: Ev[]; onClose: () => void; noAi?: boolean }) {
+function SheetModal({ sub, team, evs, onClose, noAi, older }: { sub: Sub; team: Team; evs: Ev[]; onClose: () => void; noAi?: boolean; older?: string[] }) {
   const [url, setUrl] = useState('')
   const [local, setLocal] = useState<Record<string, number>>({})
   useEffect(() => { signedUrl(sub.photo_path).then(setUrl) }, [sub.photo_path])
@@ -358,6 +369,7 @@ function SheetModal({ sub, team, evs, onClose, noAi }: { sub: Sub; team: Team; e
           <button className="button button-small button-ghost" onClick={onClose}>Zavrieť</button>
         </div>
         <div className="sheet-body">
+          {older && older.length > 0 && <p className="dup-note">↻ Tím odovzdal {older.length + 1}×. Starší hárok ({older.map(time).join(', ')}) bol nahradený, platí tento z {time(sub.submitted_at)}.</p>}
           {url && <a href={url} target="_blank" rel="noreferrer"><img className="sheet-photo" src={url} alt="Hárok" /></a>}
           {noAi && <p className="muted">Kolo bez AI: body za témy zadajte v „Ručné body“.</p>}
           {!noAi && <table className="regs">

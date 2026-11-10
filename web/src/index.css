@@ -472,3 +472,21 @@ table.regs { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .round-editor.manual { border-style: dashed; }
 .topic-max { display: flex; align-items: center; gap: 8px; font-weight: 700; }
 .topic-max input { width: 5.5em; }
+
+/* ---------- Obrazovka odovzdávania ---------- */
+.submit-board { padding: 20px; max-width: 1500px; margin: 0 auto; font-size: clamp(16px, 1.6vw, 30px); }
+.submit-board-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.submit-board h1 { margin: 0; font-size: 1.5em; }
+.sb-clock { font-size: 4.2em; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--yellow); text-shadow: 0 0 18px rgba(255, 210, 63, 0.5); line-height: 1; }
+.sb-clock.low { color: var(--red); text-shadow: 0 0 18px rgba(255, 90, 110, 0.6); }
+.sb-clock.closed { color: var(--muted); text-shadow: none; font-size: 2.4em; }
+.sb-count { font-size: 1.3em; margin: 14px 0; }
+.sb-count strong { color: var(--green); }
+.sb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15em, 1fr)); gap: 10px; }
+.sb-team { display: flex; align-items: center; gap: 10px; padding: 0.6em 0.8em; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--muted); }
+.sb-team .sb-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-team .sb-mark { font-weight: 800; width: 1.2em; text-align: center; }
+.sb-team.sent { border-color: rgba(63, 232, 154, 0.7); color: var(--text); box-shadow: 0 0 14px rgba(63, 232, 154, 0.25); }
+.sb-team.sent .sb-mark { color: var(--green); }
+.team-chip-note { font-size: 0.78rem; color: var(--yellow); }
+.dup-note { border: 1px solid var(--yellow); border-radius: 12px; padding: 8px 12px; margin: 8px 0; font-size: 0.9rem; }
