@@ -185,7 +185,7 @@ function RoundPanel({ quiz, round, onQuizChanged, onRoundChanged }: { quiz: Quiz
 }
 
 function SubmitWindow({ quiz, round, onChanged }: { quiz: Quiz; round: Round; onChanged: () => void }) {
-  const [minutes, setMinutes] = useState(5)
+  const [secs, setSecs] = useState(300)
   const [now, setNow] = useState(Date.now())
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t) }, [])
   const closes = quiz.submit_closes_at ? new Date(quiz.submit_closes_at).getTime() : 0
@@ -194,8 +194,9 @@ function SubmitWindow({ quiz, round, onChanged }: { quiz: Quiz; round: Round; on
   const left = Math.max(0, Math.floor((closes - now) / 1000))
   useEffect(() => { if (quiz.submit_open && closes && closes < now) onChanged() }, [closes, now, quiz.submit_open, onChanged])
 
-  const set = async (roundId: string | null, mins: number) => {
-    const { error } = await supabase.rpc('set_submit_window', { p_quiz_id: quiz.id, p_round_id: roundId, p_minutes: mins })
+  const fmt = (s: number) => (s < 60 ? `${s} s` : s % 60 === 0 ? `${s / 60} min` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} min`)
+  const set = async (roundId: string | null, seconds: number) => {
+    const { error } = await supabase.rpc('set_submit_window_seconds', { p_quiz_id: quiz.id, p_round_id: roundId, p_seconds: seconds })
     if (error) alert('Chyba: ' + error.message)
     onChanged()
   }
@@ -205,7 +206,7 @@ function SubmitWindow({ quiz, round, onChanged }: { quiz: Quiz; round: Round; on
         <>
           <strong>🔓 Odovzdávanie {roundOf(round.name)} je otvorené</strong> – zatvára sa o {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}
           <span className="cta-row">
-            <button className="button button-small button-ghost" onClick={() => set(round.id, Math.ceil(left / 60) + 2)}>+2 min</button>
+            <button className="button button-small button-ghost" onClick={() => set(round.id, left + 30)}>+30 s</button>
             <button className="button button-small button-danger" onClick={() => set(null, 0)}>Zatvoriť</button>
           </span>
         </>
@@ -213,10 +214,10 @@ function SubmitWindow({ quiz, round, onChanged }: { quiz: Quiz; round: Round; on
         <>
           <span>{openOther ? '⚠ Otvorené je odovzdávanie iného kola.' : '🔒 Odovzdávanie je zatvorené.'} Tímy odovzdávajú na <strong>kvizfactory.sk/odovzdat</strong></span>
           <span className="cta-row">
-            <select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} className="size-select">
-              {[3, 5, 8, 10, 15].map((m) => <option key={m} value={m}>{m} min</option>)}
+            <select value={secs} onChange={(e) => setSecs(Number(e.target.value))} className="size-select">
+              {[30, 60, 90, 120, 180, 300, 480, 600, 900].map((m) => <option key={m} value={m}>{fmt(m)}</option>)}
             </select>
-            <button className="button button-small" onClick={() => set(round.id, minutes)}>Otvoriť {roundLabel(round.name)}</button>
+            <button className="button button-small" onClick={() => set(round.id, secs)}>Otvoriť {roundLabel(round.name)}</button>
           </span>
         </>
       )}
